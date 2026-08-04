@@ -141,10 +141,22 @@ en "Paga con…", se ve "Cambio: $97" al instante -- exacto.
 
 ## Pendiente
 
+- ⚠️ **DEUDA REAL, lo primero que hay que arreglar: el carrito en curso no se
+  guarda.** `docs/CALCULADORA.md` sección 8 promete que "el ticket a medias
+  sobrevive a que se bloquee el celular... se guarda en cada toque", pero
+  `js/ui.js` tiene `let carrito = crearCarrito()` **solo en memoria**
+  (verificado 2026-08-03). Si se cierra la app a media captura, se pierde.
+  Es la Fase 1.5 del plan, junto con apagar solo el modo práctica y el aviso
+  de ticket olvidado.
 - **Que Miguel la use en su celular real una semana** antes de tocar nada
-  más (recomendación explícita del plan, no una formalidad).
+  más (recomendación explícita del plan, no una formalidad). Lo de arriba sí
+  se puede hacer mientras tanto: no cambia nada de lo que él ya usa.
 - Ícono real (`icon-512.png` es un taco placeholder generado con Pillow).
 - Su menú y precios reales -- hoy son precios de relleno que él confirma en
   el primer arranque (pantalla que bloquea cobrar hasta hacerlo).
-- Fase 2 en adelante: nube/multi-usuario en tiempo real, compras y gastos,
-  gráficas. Ver `PLAN.md`.
+- **Diseñado pero SIN construir:** la cola de órdenes
+  ([`docs/ORDENES.md`](docs/ORDENES.md), Fase 3) y los candados contra
+  ventas perdidas (`PLAN.md` sección 8). Agregados al plan el 2026-08-03 a
+  petición de Miguel — **solo diseño, no toques código por esto todavía.**
+- Fase 2 en adelante: nube/multi-usuario en tiempo real, órdenes, compras y
+  gastos, gráficas. Ver `PLAN.md`.

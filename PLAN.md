@@ -5,11 +5,18 @@
 punta a punta (código en esta carpeta, ver [`CLAUDE.md`](CLAUDE.md) para la
 arquitectura). Probada con `node --test` (26/26) y a mano en navegador
 simulando el flujo completo. **Falta que Miguel la pruebe en su celular
-real** antes de seguir con la Fase 2 — ver la recomendación en la sección 7.
+real** antes de seguir con la Fase 2 — ver la recomendación en la sección 9.
 
 Este documento es el acuerdo de qué se va a hacer y en qué orden. Para el
 detalle de cómo quedó construida la calculadora, ver
-[`docs/CALCULADORA.md`](docs/CALCULADORA.md) y `CLAUDE.md`.
+[`docs/CALCULADORA.md`](docs/CALCULADORA.md) y `CLAUDE.md`; para el diseño de
+las órdenes (todavía sin construir), [`docs/ORDENES.md`](docs/ORDENES.md).
+
+> **Agregado al plan el 2026-08-03 (solo diseño, nada construido):** la
+> **cola de órdenes** (sección 4) y los **candados contra ventas perdidas**
+> (sección 8). Las fases se recorrieron para acomodarlos, y salió a la luz
+> una deuda de la Fase 1 que ahora es lo siguiente en la lista: el carrito
+> en curso **no se está guardando** (Fase 1.5).
 
 ---
 
@@ -21,14 +28,16 @@ detalle de cómo quedó construida la calculadora, ver
 | **Usuarios** | **Varios usuarios, todos viendo la misma información en tiempo real** (corregido 2026-08-03). Cada quien entra con su nombre y PIN; los tickets guardan quién los cobró. Ver la sección 2.1 — "tiempo real" con Google Sheets tiene un límite honesto. |
 | **Corte de caja** | **No por ahora.** Sí hay resumen del día; contar el efectivo y cuadrar sobrante/faltante queda para después si lo pide. |
 | **Dónde viven los datos** | **Google Sheets vía Apps Script**, por lo pronto en **la cuenta de Miguel** (la de siempre). Se construye desde el principio con **mudanza a la cuenta del familiar en un botón**, y con **respaldo automático diario en el Drive de Miguel**. |
-| **Cómo cobra** | **Al entregar, de mostrador.** Sin cuentas abiertas ni mesas — un ticket a la vez. |
+| **Cómo cobra** | **Al entregar, de mostrador.** Sin cuentas abiertas ni mesas — un ticket a la vez. **Matiz agregado el 2026-08-03:** sí hay una **cola de órdenes** para lo que falta preparar (sección 4). Eso NO es una cuenta abierta — el cliente sigue pagando al recibir; lo que se modela es el rato entre que pide y que se le entrega. |
+| **Órdenes** | **Sí, con cola** (sección 4 y `docs/ORDENES.md`). Una orden son *platos*, cada uno con sus "sin"; `con todo` es el default. El camino de cobro directo no se toca. |
+| **Candados** | **Sí** (sección 8): la app no debe permitir que una venta se pierda — ni un ticket a medias, ni una orden entregada sin cobrar, ni algo capturado que nunca se respalda. |
 | **Aparato** | **Celular en la mano.** Es el caso más apretado, se diseña para él (~12 botones sin desplazar). |
 | **Catálogo** | Arranca con uno **típico de taquería**, con precios de relleno que él corrige en Ajustes antes del primer cobro. |
 
 ### Sobre la mudanza de cuenta (requisito de diseño, no un extra)
 
 Que hoy viva en tu cuenta y mañana en la de él **no puede ser una migración
-manual dolorosa**. Se resuelve así desde la Fase 3:
+manual dolorosa**. Se resuelve así desde la Fase 2:
 
 - La app **nunca guarda un ID de hoja quemado**: solo la URL del Apps Script.
   Cambiar de cuenta = pegar otra URL en Ajustes.
@@ -38,7 +47,7 @@ manual dolorosa**. Se resuelve así desde la Fase 3:
 - El **respaldo diario en tu Drive se queda igual aunque se mude**: el respaldo
   es una llamada del backend nuevo hacia una carpeta compartida contigo, o
   (más simple y sin permisos raros) la app manda una copia a las dos URLs.
-  Se decide en la Fase 3 con el código enfrente; ambas caben.
+  Se decide en la Fase 2 con el código enfrente; ambas caben.
 
 **No hay nada del régimen fiscal de SUMETEC aquí.** Nada de IVA, RESICO, CFDI
 ni "espejo de la remisión". Los precios de la taquería son al público, un
@@ -106,12 +115,13 @@ Mis cosas/taqueria/
 ├─ tests/*.test.js            26 pruebas, node --test
 ├─ manifest.json, sw.js       PWA instalable, offline
 ├─ icon-512.png               placeholder (taco genérico)
-├─ docs/CALCULADORA.md
+├─ docs/CALCULADORA.md        cómo quedó construida la calculadora
+├─ docs/ORDENES.md            diseño de la cola (SIN construir, Fase 3)
 └─ CLAUDE.md                  arquitectura, para que la IA no la redescubra
 
   Todavía NO existen (llegan en su fase): apps_script/Codigo.gs, cola.js,
-  api.js (Fase 2 — nube); compras.js, gastos.js (Fase 3); reportes.js,
-  graficas.js (Fase 4).
+  api.js (Fase 2 — nube); ordenes.js (Fase 3 — la cola); compras.js,
+  gastos.js (Fase 4); reportes.js, graficas.js (Fase 5).
 ```
 
 ### Por qué IndexedDB y no localStorage para las ventas
@@ -248,7 +258,44 @@ de dónde".
 
 ---
 
-## 4. Compras (materia prima)
+## 4. Órdenes — la cola de lo que hay que preparar
+
+**Agregado al plan el 2026-08-03, a petición de Miguel. Diseño completo en
+[`docs/ORDENES.md`](docs/ORDENES.md) — aquí solo el resumen.**
+
+Un botón **`+ Orden`** arriba en la pantalla de cobrar levanta el pedido de
+la gente que llega y todavía no se atiende. Se forma en una **cola**, y el
+taquero la abre para ver clarísimo qué preparar.
+
+**No contradice la decisión de "sin cuentas abiertas ni mesas"** (sección 1):
+el cliente sigue pagando cuando se le entrega. Lo que se agrega es el rato
+entre *"deme cinco de asada"* y *"aquí tiene"* — que hoy la app ignora, y que
+en un puesto con fila es donde se pierden pedidos.
+
+Lo esencial:
+
+- **Una orden son platos, no una lista plana.** *"En un plato 2 de asada y 3
+  de adobada, y aparte otras cosas"* — cada plato lleva sus propios "sin"
+  (`S/cebolla`, `S/cilantro`, `S/salsa`, `todo aparte`), porque así se habla
+  y así se sirve. **`Con todo` es el default y cuesta cero toques.**
+- **Se reusa la misma cuadrícula** de la calculadora, con las mismas
+  posiciones congeladas. Inventar un segundo selector de productos tiraría a
+  la basura la memoria muscular que se ganó en la Fase 1.
+- **El camino directo no se toca.** Quien no use `+ Orden` tiene exactamente
+  la app de hoy. Y cobrar *desde* una orden es **más rápido** que hoy: los
+  productos ya están capturados, solo falta el pago.
+- **La vista del taquero es lo que más importa** — número grande primero
+  (`2 ASADA`), platos separados de verdad, y los "sin" en rojo arriba del
+  plato (servir con cebolla lo que se pidió sin cebolla es *el* error clásico
+  y significa rehacerlo).
+
+**Dónde entra:** ver la Fase 3 en la sección 9 — va después de la nube,
+porque una cola compartida entre el que toma la orden y el taquero solo
+sirve de verdad si los dos aparatos ven lo mismo.
+
+---
+
+## 5. Compras (materia prima)
 
 Dos modos, porque no siempre hay tiempo de capturar bonito:
 
@@ -257,7 +304,7 @@ Dos modos, porque no siempre hay tiempo de capturar bonito:
   en `12.- GASTOS E INVENTARIO`.
 - **Detallado**: renglones con producto, cantidad, unidad (kg / pza / lt /
   manojo) y precio. Cuesta más, pero desbloquea el **historial de precios**
-  (ver Fase 5) — que es donde está el dinero escondido.
+  (ver Fase 6) — que es donde está el dinero escondido.
 
 **Categorías propuestas** (editables): Carnes (res, adobada, tripa, buche,
 cabeza, lengua, chorizo, cerdo), Tortillas, Verduras y salsas (tomate, chile,
@@ -266,7 +313,7 @@ especias), Bebidas, Desechables (servilletas, platos, bolsas), Gas.
 
 ---
 
-## 5. Gastos (lo que no es materia prima)
+## 6. Gastos (lo que no es materia prima)
 
 Renta, luz, agua, gas de tanque, sueldos, permisos y licencias, mantenimiento,
 gasolina/transporte, publicidad.
@@ -279,7 +326,7 @@ ves el flujo de efectivo tal cual. Los dos sirven, para cosas distintas.
 
 ---
 
-## 6. Reportes y gráficas
+## 7. Reportes y gráficas
 
 Todo en SVG a mano, dentro de la app, sin librerías.
 
@@ -309,7 +356,84 @@ Todo en SVG a mano, dentro de la app, sin librerías.
 
 ---
 
-## 7. Fases
+## 8. Candados — que ninguna venta se pierda
+
+**Agregado al plan el 2026-08-03, a petición de Miguel:** *"candados para que
+todas las ventas se guarden, para asegurar que el usuario sí envíe la venta"*.
+
+### La regla que los rige
+
+Un candado que molesta en cada venta se ignora, y a la semana se apaga o se
+le pica "aceptar" sin leer. Entonces:
+
+> **Los candados se callan cuando todo va bien y solo gritan cuando de
+> verdad hay algo perdido.** Cero toques de más en la venta normal.
+
+Es la misma lógica que ya se usó para preferir DESHACER sobre "confirmar"
+(ver `docs/CALCULADORA.md`): no le cobres a los 200 tickets buenos el precio
+de proteger a los 5 malos.
+
+### Los riesgos reales, ordenados por cuánto dinero cuestan
+
+**1. Orden entregada y nunca cobrada** — se entregó la comida y nadie cobró.
+Es la pérdida más cara y **solo existe a partir de las órdenes** (sección 4).
+*Candado:* una orden nunca desaparece sola. Al entregarla pasa a "por
+cobrar", con un contador visible que no se puede ignorar (`⚠ 2 sin cobrar`),
+y el tiempo que lleva así. Cobrarla la cierra; solo se puede descartar a
+mano y dejando dicho por qué (cortesía, se fue sin pagar, error).
+
+**2. El ticket a medias se pierde** — se llevan capturados 6 tacos, se
+bloquea el celular o se cierra la app, y al volver está vacío.
+⚠️ **Hoy esto NO está protegido.** `docs/CALCULADORA.md` lo promete en su
+sección 8 ("el ticket a medias sobrevive... se guarda en cada toque") pero
+el código actual tiene el carrito **solo en memoria** (`let carrito` en
+`js/ui.js`) — se verificó el 2026-08-03. Es un hueco real entre lo diseñado
+y lo construido.
+*Candado:* guardar el carrito en curso en cada toque y recuperarlo al abrir.
+Es barato y **debería hacerse en la próxima tanda de trabajo, antes que
+cualquier cosa nueva** — es una promesa ya escrita que no se está
+cumpliendo.
+
+**3. El modo práctica se queda prendido** — se practica un rato, se olvida
+apagarlo, y las ventas reales del día se guardan como práctica: no cuentan
+en ningún reporte. Este riesgo **lo introdujo la app misma** al agregar el
+modo práctica.
+*Candado:* el modo práctica se apaga solo (al cambiar de día, o después de
+X minutos sin uso), además del letrero que ya existe.
+
+**4. Ticket olvidado que contamina al siguiente** — quedan 3 tacos
+capturados de un cliente que ya se fue; llega el siguiente, se le suman sus
+tacos encima y sale un ticket falso — y la venta anterior nunca existió.
+*Candado:* si el carrito lleva más de N minutos sin tocarse, al volver
+pregunta una sola vez: *"¿este ticket sigue vivo?"* → seguir / descartar.
+
+**5. Capturado pero nunca respaldado** (a partir de la Fase 2) — todo vive
+en el celular; si se pierde o se reinstala la app, se va con él.
+*Candado:* contador visible de ventas sin respaldar, y **aviso fuerte si
+crece o si lleva días sin subir** — no basta con reintentar en silencio,
+porque un fallo silencioso se ve igual que todo bien.
+
+**6. Cobrar dos veces la misma orden** — el error contrario, y también
+cuesta (un cliente enojado). *Candado:* una orden cobrada queda bloqueada;
+no se puede volver a cobrar. Ver `docs/ORDENES.md`.
+
+**7. Precios de ejemplo** — cobrar todo el día con los precios de relleno.
+*Candado:* **ya existe y ya funciona** — bloquea el cobro hasta confirmarlos.
+
+### Cierre del día
+
+Una pantalla al terminar que **no deja pendientes vivos**: órdenes sin
+cobrar, tickets a medias, ventas sin respaldar. Resolver o descartar cada
+una, y se cierra el día.
+
+**Esto no es el corte de caja** que Miguel dejó fuera (sección 1) — aquí no
+se cuenta efectivo ni se cuadra sobrante/faltante. Es solo la revisión de que
+nada quedó a medias. El corte de caja de verdad sigue pendiente, en la
+Fase 6.
+
+---
+
+## 9. Fases
 
 Cada fase deja algo **usable**, no un pedazo a medias.
 
@@ -343,12 +467,25 @@ la Fase 2 — para la prueba de campo basta un dispositivo.
 > diseñó — un cronómetro corriendo en un navegador de escritorio no reemplaza
 > manos grasosas y un cliente esperando. Todo lo que se construya después
 > sobre una calculadora que no le acomoda es trabajo tirado. Ajustar aquí es
-> barato; ajustar en la Fase 4 no.
+> barato; ajustar en la Fase 5 no.
 >
 > **Cómo probarla hoy:** abrir `index.html` en un navegador (o instalarla
 > como PWA — "Añadir a pantalla de inicio") y usar el catálogo de ejemplo;
 > confirmar precios en Ajustes antes de cobrar. Ver `CLAUDE.md` para el
 > puerto de preview local si se prueba desde esta sesión.
+
+### Fase 1.5 — Los candados que no dependen de nada ⏭️ LO SIGUIENTE
+Chica y va primero, antes que cualquier cosa nueva — son huecos de la Fase 1,
+no features (ver sección 8):
+
+- **Guardar el carrito en curso en cada toque** y recuperarlo al abrir.
+  `docs/CALCULADORA.md` ya lo promete y el código **no lo cumple** — el
+  carrito vive solo en memoria. Es la deuda más clara que hay hoy.
+- **Apagar solo el modo práctica** (al cambiar de día o tras X minutos).
+- **Aviso de ticket olvidado** si el carrito lleva N minutos sin tocarse.
+
+Se puede hacer aunque la prueba de campo siga corriendo — no cambia nada de
+lo que él ya está usando, solo deja de perder cosas.
 
 ### Fase 2 — Nube, usuarios y tiempo real
 **Se adelantó** (antes era la 3): con varios usuarios compartiendo información
@@ -364,8 +501,29 @@ Apps Script), el sondeo barato de ~10 segundos de la sección 2.1, respaldo
 diario automático en carpeta hermana, y `exportarTodo`/`importarTodo` para la
 mudanza de cuenta.
 
-### Fase 3 — Compras y gastos
-Secciones 4 y 5, con foto de ticket. Aquí ya se cierra la utilidad de caja:
+Aquí también entra el **candado 5** (contador de ventas sin respaldar, con
+aviso fuerte si crece o si lleva días — ver sección 8).
+
+### Fase 3 — Órdenes (la cola)
+Todo lo de [`docs/ORDENES.md`](docs/ORDENES.md): `+ Orden`, platos con sus
+modificadores, la cola numerada, la vista del taquero, y cobrar desde una
+orden.
+
+**Va después de la nube, a propósito.** Una cola compartida entre el que
+levanta el pedido y el que cocina **solo sirve de verdad si los dos aparatos
+ven lo mismo** — construirla local primero y volver a hacerla para
+sincronizar sería el mismo trabajo dos veces. Es el mismo razonamiento que ya
+adelantó la nube de la Fase 3 a la 2.
+
+*Excepción:* si la prueba de campo de la Fase 1 grita que la cola es lo que
+más urge (más que la nube), se puede adelantar la parte local sabiendo que
+habrá que retocarla al sincronizar. Que sea una decisión, no un descuido.
+
+Aquí entran los **candados 1 y 6** (ninguna orden se entrega sin cobrar,
+ninguna se cobra dos veces) y el **cierre del día** — sección 8.
+
+### Fase 4 — Compras y gastos
+Secciones 5 y 6, con foto de ticket. Aquí ya se cierra la utilidad de caja:
 cuánto entró, cuánto salió, cuánto quedó.
 
 Estructura en Drive:
@@ -374,6 +532,7 @@ Estructura en Drive:
 Mi unidad/
 ├── Taqueria/
 │   └── Datos            ← Usuarios, Tickets, Ventas (un renglón por producto),
+│                          Ordenes, OrdenesDetalle,
 │                          Compras, ComprasDetalle, Gastos, Productos, Config
 └── Taqueria-respaldo/   ← copia diaria, carpeta HERMANA a propósito:
                            si se borra Taqueria/, el respaldo no se va con ella
@@ -389,13 +548,23 @@ pelearse. Lo único compartido de verdad es el catálogo de productos, y ahí
 gana el último cambio, con número de versión (mismo truco que `leerVersion()`
 en MIS APPS: preguntar barato si algo cambió antes de bajarlo todo).
 
+⚠️ **Las órdenes son la excepción** y hay que tratarlas aparte: a diferencia
+de un ticket, una orden **cambia de estado** (en cola → entregada → cobrada)
+y la tocan dos aparatos distintos. No basta con "solo se agregan". La regla
+propuesta: **el estado solo avanza, nunca retrocede** — si dos aparatos
+mandan estados distintos de la misma orden, gana el más avanzado. Así, dos
+personas marcando "entregada" a la vez no se pisan, y una orden cobrada
+jamás vuelve a la cola. Se decide con el código enfrente en la Fase 3.
+
 ⚠️ Recordatorio permanente: **cada cambio a `Codigo.gs` necesita "Implementar
 → nueva versión"** en script.google.com. Guardar en el editor no despliega.
 
-### Fase 4 — Reportes y gráficas
-Sección 6 completa.
+### Fase 5 — Reportes y gráficas
+Sección 7 completa. Con las órdenes ya construidas se suman gratis dos
+números que hoy no existirían: **cuánto tarda una orden** de que se levanta a
+que se entrega, y **cuántas órdenes se atienden por hora** en el pico.
 
-### Fase 5 — Lo que se decide después de verlo funcionando
+### Fase 6 — Lo que se decide después de verlo funcionando
 Ninguna es obligatoria; se toman las que él pida al usarlo:
 
 - **Historial de precios de insumos** + aviso cuando algo sube más de X%
@@ -414,7 +583,7 @@ Ninguna es obligatoria; se toman las que él pida al usarlo:
 
 ---
 
-## 8. Cómo llega al celular
+## 10. Cómo llega al celular
 
 Igual que MIS APPS: GitHub Pages sirve el sitio (el código es público, los
 datos nunca — viven en el celular; la nube privada llega en la Fase 2), y en
@@ -441,7 +610,7 @@ escrito sin mandar) — mismo patrón ya probado en MIS APPS.
 
 ---
 
-## 9. Riesgos que veo
+## 11. Riesgos que veo
 
 - **El de siempre: que no la use.** Un puesto de tacos es prisa, grasa y manos
   mojadas. Por eso la calculadora va primero y se prueba en campo antes de
@@ -454,12 +623,12 @@ escrito sin mandar) — mismo patrón ya probado en MIS APPS.
   lotes desde el diseño, no después.
 - **El respaldo que nunca se instaló.** En MIS APPS el respaldo automático
   lleva meses pendiente porque hay que correr una función a mano una vez.
-  Aquí se construye en la Fase 3 **y se corre ese mismo día**, no se apunta
+  Aquí se construye en la Fase 2 **y se corre ese mismo día**, no se apunta
   como pendiente.
 
 ---
 
-## 10. Lo que falta decidir (no bloquea empezar)
+## 12. Lo que falta decidir (no bloquea empezar)
 
 - **Nombre de la app** y color. Ahorita la carpeta se llama `TAQUERIA` y la
   paleta está sin definir — no van los azules de SUMETEC ni el índigo de MIS
