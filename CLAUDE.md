@@ -13,14 +13,22 @@ Miguel dé la URL del repo remoto para el primer `git push` (ver PLAN.md
 sección 8). Pendiente: que Miguel la pruebe en su celular real una semana
 antes de seguir.**
 
-**Cambios de esta misma sesión, después de la primera versión:** Ajustes se
-rediseñó (checkbox "en la cuadrícula" + arrastrar para el orden, en vez de
-flechas ↑↓ — ver `renderListaProductos`/`cablearArrastre` en `js/ui.js`); el
-service worker ahora se auto-versiona (ver abajo); y el cobro manual "Otro"
-ahora también ofrece la sugerencia de cambio (antes solo la tenían los
-botones rápidos) — con un bug real corregido en el camino: tocar la
-sugerencia subía "cambio" sin subir "recibí", lo que hacía ver "diste de
-más" en una cuenta que en realidad ya cerraba exacta.
+**Cambios de esta misma sesión, después de la primera versión:**
+- Ajustes se rediseñó: checkbox "en la cuadrícula" + arrastrar para el orden,
+  en vez de flechas ↑↓ (`renderListaProductos`/`cablearArrastre` en `js/ui.js`).
+- Service worker auto-versionado (ver abajo).
+- **El cobro se simplificó de raíz — dos vueltas.** Primero se construyó (y
+  probó, y funcionaba) una "ayuda de cambio": botones de billete que
+  sugerían *"pídele $3 más → dale $100"*. **Miguel pidió quitarla por
+  completo** ("ya no vamos a pedir nada") y la reemplazó por un campo único,
+  junto al total, para teclear cuánto paga el cliente — el cambio se ve al
+  instante, sin sugerencias. Se quitó `cambio.js::sugerenciaCambio` y
+  `dinero.js::siguienteBillete/billeteDespuesDe/desglosarPiezas/contarPiezas`
+  por completo (no quedaron ni como código muerto -- si hace falta
+  recuperarlos, están en el historial de git, commits antes del
+  2026-08-03 tarde). **Lección para no repetir:** cuando una explicación no
+  se traduce limpio a pantalla dos veces seguidas, la señal es simplificar
+  el diseño, no explicarlo mejor.
 
 ## Arquitectura
 
@@ -31,8 +39,8 @@ taqueria/
 ├─ index.html              una sola pantalla de cobro + Ajustes, sin router
 ├─ js/
 │  ├─ app.js                GENERADO por build.py -- NUNCA editar a mano
-│  ├─ dinero.js             centavos enteros, formato $, denominaciones MXN, desglose goloso
-│  ├─ cambio.js             la ayuda de cambio ("pide $3 → das $100")
+│  ├─ dinero.js             centavos enteros, formato $
+│  ├─ cambio.js             calcularCambio (resta simple)
 │  ├─ modelo.js             fechas/horas ISO, crearId
 │  ├─ catalogo.js           productos: cuadrícula (posiciones fijas) + ocultos, en localStorage
 │  ├─ ticket.js             el carrito en construcción (puro, sin storage)
@@ -41,7 +49,7 @@ taqueria/
 │  └─ ui.js                 pinta pantallas y cablea eventos -- punto de entrada, nada exportado
 ├─ css/estilos.css          paleta propia: naranja salsa + verde cilantro sobre crema
 ├─ build.py                 empaquetador (ver abajo)
-├─ tests/*.test.js          node --test, 34 pruebas sobre dinero/cambio/ticket/catalogo
+├─ tests/*.test.js          node --test, 26 pruebas sobre dinero/cambio/ticket/catalogo
 ├─ manifest.json, sw.js     PWA instalable, offline-first
 └─ icon-512.png             PLACEHOLDER (taco genérico) -- falta el ícono real
 ```
@@ -94,15 +102,10 @@ mismo patrón que MIS APPS, ya probado ahí.
 
 - **Todo en centavos enteros** (`dinero.js::aCentavos/aPesos`), nunca
   flotantes -- mismo criterio que MIS APPS.
-- **Denominaciones MXN son "canónicas"**: un algoritmo goloso (tomar siempre
-  la pieza más grande que quepa) da el mínimo de piezas SIEMPRE. No hace
-  falta programación dinámica para el desglose de cambio.
-- La ayuda de cambio (`cambio.js::sugerenciaCambio`) prueba pedir de $1 a $20
-  **en pesos completos** (no solo monedas sueltas de una denominación) --
-  "pídele $3" es una combinación de un $2 y un $1, no una sola moneda. El
-  primer intento de este algoritmo solo probaba denominaciones sueltas y
-  fallaba exactamente en el ejemplo real que dio Miguel ($403/$500 → $3).
-  Ver el test que lo prueba en `tests/cambio.test.js`.
+- `cambio.js` es a propósito minúsculo: solo `calcularCambio` (resta simple,
+  nunca negativo). Tuvo una versión con sugerencia de billetes limpios
+  ("pídele $3 más") que se construyó, se probó, y Miguel pidió quitarla --
+  ver la nota de arriba. No la reintroduzcas sin que él lo pida de nuevo.
 
 ## Reglas de la calculadora (no negociables, ver docs/CALCULADORA.md)
 
@@ -112,10 +115,10 @@ mismo patrón que MIS APPS, ya probado ahí.
   mata la memoria muscular. Qué producto está en la cuadrícula o detrás de
   "Más…" se decide con un checkbox por producto (tope 11) -- no hay listas
   separadas ni botones "subir/bajar".
-- **Cobrar ES guardar.** Tocar un billete guarda el ticket al instante, sin
-  paso de "confirmar". El error se corrige con DESHACER (6 segundos), no se
-  previene con una pantalla de más.
-- **El cambio se calcula ANTES de tocar el botón**, no después.
+- **Cobrar ES guardar.** Un campo junto al total ("Paga con…", vacío = pagó
+  exacto) + un botón "Cobrar" que guarda al instante, sin paso de
+  "confirmar". El error se corrige con DESHACER (6 segundos), no se previene
+  con una pantalla de más.
 - Toque corto = +1. Toque largo (480ms, `RETRASO_TOQUE_LARGO`) = teclado de
   cantidad, para pedidos grandes ("10 de asada").
 - La app se cronometra sola (`cronometro.js`) -- meta: 6s de mediana por
@@ -127,14 +130,14 @@ mismo patrón que MIS APPS, ya probado ahí.
 python build.py && node --test tests/*.test.js
 ```
 
-34/34 en verde. `obtenerCatalogo`/`guardarCatalogo` (tocan `localStorage`) y
+26/26 en verde. `obtenerCatalogo`/`guardarCatalogo` (tocan `localStorage`) y
 todo `almacen.js` (IndexedDB) NO tienen prueba de `node --test` -- Node no
 trae esas APIs del navegador. Se probaron a mano en el navegador
 (`.claude/launch.json` → configuración `taqueria`, puerto 8203) simulando el
 flujo completo con `PointerEvent` (los botones escuchan `pointerdown`/
 `pointerup`, no `click`, por el toque largo). Ese flujo de prueba manual
-confirmó el caso real de Miguel: 7 tortas + 1 adobada = $403, paga con $500,
-sugiere "pide $3 → das $100" -- exacto.
+confirmó el caso real de Miguel: 7 tortas + 1 adobada = $403, escribes $500
+en "Paga con…", se ve "Cambio: $97" al instante -- exacto.
 
 ## Pendiente
 

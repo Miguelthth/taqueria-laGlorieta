@@ -26,6 +26,11 @@
       <button id="btn-ir-ajustes" class="btn-ajustes" title="Ajustes" aria-label="Ajustes">⚙️</button>
     </header>
 
+    <div class="zona-paga-con oculto" id="zona-paga-con">
+      <input type="number" inputmode="decimal" id="paga-con" class="input-paga-con" placeholder="Paga con…">
+      <div class="cambio-mostrado" id="cambio-mostrado"></div>
+    </div>
+
     <div class="fila-ticket" id="fila-ticket">
       <div class="ticket-lineas" id="ticket-lineas"></div>
       <button id="btn-libre" class="btn-libre">+ $ libre</button>
@@ -87,24 +92,6 @@
       <label class="campo-label">Nota (opcional)</label>
       <input type="text" id="libre-nota" class="input-texto-modal" placeholder="Orden especial">
       <button id="btn-libre-agregar" class="btn-primario">Agregar al ticket</button>
-    </div>
-  </div>
-
-  <!-- ===== PAGO "OTRO" (manual, con redondeo editable) ===== -->
-  <div id="modal-otro" class="hoja-fondo oculto">
-    <div class="hoja-caja hoja-chica">
-      <div class="hoja-cabecera">
-        <h2>Cobro manual</h2>
-        <button id="btn-cerrar-otro" class="btn-cerrar">✕</button>
-      </div>
-      <p class="texto-suave" id="otro-total"></p>
-      <label class="campo-label">Recibí</label>
-      <input type="number" inputmode="decimal" id="otro-recibido" class="input-grande-modal" placeholder="0" autofocus>
-      <button type="button" class="texto-sugerencia oculto" id="otro-sugerencia"></button>
-      <label class="campo-label">Le doy de cambio</label>
-      <input type="number" inputmode="decimal" id="otro-cambio" class="input-grande-modal">
-      <p class="texto-suave" id="otro-redondeo"></p>
-      <button id="btn-otro-cobrar" class="btn-primario">Cobrar</button>
     </div>
   </div>
 

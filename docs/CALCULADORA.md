@@ -90,7 +90,7 @@ ticket normal.
 ┌──────────────────────────────────────┐
 │                                      │
 │  TOTAL              $403             │  ← enorme, se lee de lejos
-│                                      │
+│  Paga con [500]     Cambio: $97      │  ← un campo, se ve al instante
 ├──────────────────────────────────────┤
 │ 3 adobada · 1 mulita · 1 refresco  ✕ │  ← un renglón, no una lista
 ├──────────────────────────────────────┤
@@ -106,8 +106,7 @@ ticket normal.
 │  │REFRES.①│ │  AGUA  │ │  MÁS…  │    │
 │  └────────┘ └────────┘ └────────┘    │
 ├──────────────────────────────────────┤
-│  EXACTO      $500        $1000   OTRO│  ← cobra Y guarda de un toque
-│   $403     pide $3→$100   $597       │
+│           [   Cobrar   ]             │  ← guarda de un toque
 ├──────────────────────────────────────┤
 │              ↺  DESHACER             │  ← 6 seg después de guardar
 └──────────────────────────────────────┘
@@ -120,16 +119,14 @@ botones, que es donde sirve.
 
 ---
 
-## 5. El truco que quita un toque entero: cobrar **es** guardar
+## 5. Cobrar **es** guardar — sin paso de "confirmar"
 
 Flujo del plan original: productos → **Cobrar** → billete → **Guardar** = 2
 toques de trámite en cada ticket.
 
-Flujo nuevo: productos → **billete** → listo. El ticket se guarda solo al
-tocar el billete.
-
-Son 2 toques menos × 200 tickets = **400 toques menos al día**, y sobre todo
-dos decisiones menos por cliente.
+Flujo de verdad: productos → (si hace falta, escribe cuánto paga) →
+**Cobrar** → listo. Un solo botón al final, nunca una pantalla de
+"¿seguro?" — tocar **Cobrar** guarda el ticket al instante, sin paso aparte.
 
 **"¿Y si le pico mal y se guarda una venta equivocada?"** Para eso está la
 barra de **DESHACER**, grande, 6 segundos.
@@ -145,49 +142,36 @@ toda la app:
 
 ---
 
-## 6. Los botones de pago: la respuesta **antes** de tocarlos
+## 6. Cobrar: un campo, junto al total
 
-Los billetes no son botones fijos $50/$100/$200/$500 — para un total de $403,
-$50 y $100 son basura ocupando lugar. **La fila se arma según el total**, y
-son máximo cuatro:
+> ⚠️ **Reescrito 2026-08-03.** La primera versión de esta sección describía
+> botones de billete ($500/$1000) con una "ayuda de cambio" que sugería
+> *"pídele $3 más → dale $100"* — se construyó, se probó, y **Miguel pidió
+> quitarla por completo**: *"ya no vamos a pedir nada"*. No era lo que tenía
+> en mente y la implementación tampoco se lo dejó claro después de dos
+> intentos. Queda como lección, no como feature: cuando la primera
+> explicación de algo no se traduce limpio a una pantalla, la señal es
+> **simplificar**, no explicar mejor la versión compleja. El código de la
+> sugerencia sigue en el historial de git si algún día se quiere retomar,
+> pero hoy no existe.
 
-| | |
-|---|---|
-| **EXACTO $403** | por si paga justo o con tarjeta |
-| **$500** | el billete que sigue |
-| **$1000** | el siguiente |
-| **OTRO** | teclado, para cualquier cosa |
+El diseño de verdad, tal como quedó construido:
 
-Y **debajo de cada uno ya viene el cambio calculado**, antes de tocarlo. Con
-eso el que cobra **lee la respuesta y luego toca** — no toca para preguntar.
-Ahí es donde la app por fin le gana a la cabeza.
-
-### La ayuda de cambio, que es el corazón
-
-Debajo de `$500`, para un total de $403:
+- Junto al **TOTAL**, un campo siempre visible: **"Paga con…"**.
+- Se teclea cuánto da el cliente y el **cambio se ve al instante**, debajo,
+  como texto simple (`Cambio: $97`) — sin sugerencias, sin cálculo de
+  billetes, solo la resta.
+- **Vacío = pagó exacto.** No hay que teclear nada para el caso más común;
+  tocar "Cobrar" con el campo en blanco cobra el total tal cual.
+- Un solo botón, **Cobrar**, abajo en la zona del pulgar. Sigue siendo
+  "cobrar es guardar": un toque, sin confirmar aparte.
 
 ```
-        $500
-   pide $3 → $100
+  TOTAL              $403
+  Paga con [500]     Cambio: $97
+  ...
+  [        Cobrar        ]
 ```
-
-Un cliente con $500 y un total de $403 = $97 de puro menudo. La app dice sola
-que le pida $3 y le regrese **$100 de un billete**. No hay nada que teclear,
-nada que pensar, y es exactamente la cuenta que hoy hace de cabeza con el
-cliente enfrente.
-
-**Cómo la calcula:** busca la cantidad más chica (hasta ~$20) que el cliente
-podría traer suelta con la que el cambio queda en billetes limpios. Un billete
-gana sobre dos; $100 gana sobre $50+$50. Denominaciones mexicanas de verdad
-(monedas $1 $2 $5 $10, billetes $20 $50 $100 $200 $500 $1000). **Si ya sale
-limpio, no dice nada** — no estorba cuando no hace falta.
-
-Esto **no cambia el total**: paga sus $403, nada más con otros billetes.
-Ticket: total $403, recibió $503, cambio $100. Nada que cuadrar después.
-
-Aparte, para cuando **de plano se perdona el cambio** (son $298, "déjalo en
-$300"): el cambio es editable y la diferencia se guarda como **redondeo**, para
-que el corte del día cuadre contra el dinero real y no contra la teoría.
 
 ---
 

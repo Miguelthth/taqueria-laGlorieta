@@ -12,8 +12,8 @@ import {
   crearCarrito, agregarProducto, agregarLibre, quitarUno,
   establecerCantidad, quitarLinea, cantidadDe, totalCentavos, estaVacio,
 } from './ticket.js';
-import { aCentavos, aPesos, formatoMoneda, siguienteBillete, billeteDespuesDe } from './dinero.js';
-import { sugerenciaCambio, calcularCambio, calcularRedondeo } from './cambio.js';
+import { aCentavos, aPesos, formatoMoneda } from './dinero.js';
+import { calcularCambio } from './cambio.js';
 import { hoyISO, horaISO, crearId } from './modelo.js';
 import { guardarTicket, borrarTicket, listarTicketsPorFecha } from './almacen.js';
 import { ahora, registrarDuracion, estadisticas, reiniciarMedicion } from './cronometro.js';
@@ -25,8 +25,6 @@ let inicioTicketMs = null;
 let ultimoGuardado = null;
 let temporizadorDeshacer = null;
 let productoCantidadActual = null;
-let cambioEditadoManualmente = false;
-let ultimaSugerenciaOtro = null;
 let modoPractica = localStorage.getItem('taq_modo_practica') === '1';
 
 // ---------- helpers ----------
@@ -40,11 +38,6 @@ function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
-}
-function pesosParaInput(centavos) {
-  const p = aPesos(centavos);
-  if (p === 0) return '';
-  return Number.isInteger(p) ? String(p) : p.toFixed(2);
 }
 function marcarInicioSiHaceFalta() {
   if (estaVacio(carrito)) inicioTicketMs = ahora();
@@ -72,10 +65,12 @@ function irA(vistaId) {
 // ============================================================
 
 function renderCobrar() {
-  $('total-grande').textContent = formatoMoneda(totalCentavos(carrito));
+  const total = totalCentavos(carrito);
+  $('total-grande').textContent = formatoMoneda(total);
+  if (total > 0) mostrar($('zona-paga-con')); else ocultar($('zona-paga-con'));
   renderTicketLineas();
   renderCuadricula();
-  renderFilaPago();
+  renderPago();
   renderOverlayPrecios();
 }
 
@@ -165,56 +160,34 @@ function renderOverlayPrecios() {
   if (tienePreciosPendientes(catalogoActual)) mostrar(overlay); else ocultar(overlay);
 }
 
-function armarBotonesPago(total) {
-  const botones = [{ tipo: 'exacto', montoCentavos: total }];
-  let b = siguienteBillete(total);
-  while (botones.length < 3 && b) {
-    if (b !== total) botones.push({ tipo: 'billete', montoCentavos: b });
-    b = billeteDespuesDe(b);
-  }
-  botones.push({ tipo: 'otro' });
-  return botones;
-}
-
-function renderFilaPago() {
+// Un solo campo, junto al total: "¿con cuánto paga?" -> el cambio se ve al
+// instante. Nada de sugerir pedir sueltos -- eso se probó y no era lo que
+// Miguel quería. Vacío = pagó exacto (no hay que teclear nada para el caso
+// más común).
+function renderPago() {
+  const total = totalCentavos(carrito);
   const cont = $('fila-pago');
-  cont.innerHTML = '';
-  const total = totalCentavos(carrito);
-  if (total <= 0) return;
-  for (const b of armarBotonesPago(total)) {
-    const btn = document.createElement('button');
-    if (b.tipo === 'exacto') {
-      btn.className = 'btn-pago exacto';
-      btn.innerHTML = `<span class="monto">Exacto</span><span class="detalle">${formatoMoneda(total)}</span>`;
-      btn.addEventListener('click', () => cobrarInstantaneo(total, 'exacto'));
-    } else if (b.tipo === 'billete') {
-      btn.className = 'btn-pago billete';
-      const cambio = b.montoCentavos - total;
-      const sugerencia = sugerenciaCambio(total, b.montoCentavos);
-      let detalle;
-      if (sugerencia) detalle = `Pide ${formatoMoneda(sugerencia.pedirCentavos)} → das ${formatoMoneda(sugerencia.cambioCentavos)}`;
-      else if (cambio > 0) detalle = `cambio ${formatoMoneda(cambio)}`;
-      else detalle = 'sin cambio';
-      btn.innerHTML = `<span class="monto">${formatoMoneda(b.montoCentavos)}</span><span class="detalle">${detalle}</span>`;
-      btn.addEventListener('click', () => cobrarInstantaneo(b.montoCentavos, 'billete'));
-    } else {
-      btn.className = 'btn-pago otro';
-      btn.innerHTML = '<span class="monto">Otro</span><span class="detalle">monto / redondeo</span>';
-      btn.addEventListener('click', abrirModalOtro);
-    }
-    cont.appendChild(btn);
-  }
+  if (total <= 0) { cont.innerHTML = ''; return; }
+  actualizarCambioMostrado();
+  cont.innerHTML = '<button id="btn-cobrar" class="btn-pago exacto">Cobrar</button>';
+  $('btn-cobrar').addEventListener('click', cobrar);
 }
 
-async function cobrarInstantaneo(recibidoCentavos, metodoPago) {
+function actualizarCambioMostrado() {
   const total = totalCentavos(carrito);
-  const cambio = calcularCambio(total, recibidoCentavos);
+  const recibido = aCentavos(Number($('paga-con').value) || 0) || total;
+  const cambio = calcularCambio(total, recibido);
+  $('cambio-mostrado').textContent = total > 0 ? `Cambio: ${formatoMoneda(cambio)}` : '';
+}
+
+async function cobrar() {
+  const total = totalCentavos(carrito);
+  const recibido = aCentavos(Number($('paga-con').value) || 0) || total;
+  const cambio = calcularCambio(total, recibido);
   await finalizarTicket({
-    metodoPago,
-    billeteCentavos: metodoPago === 'billete' ? recibidoCentavos : null,
-    recibidoCentavos,
+    metodoPago: recibido === total ? 'exacto' : 'manual',
+    recibidoCentavos: recibido,
     cambioCentavos: cambio,
-    redondeoCentavos: 0,
   });
 }
 
@@ -237,6 +210,7 @@ async function finalizarTicket(pago) {
   mostrarDeshacer(ticket);
   vibrar([25, 40, 25]);
   carrito = crearCarrito();
+  $('paga-con').value = '';
   inicioTicketMs = null;
   renderCobrar();
 }
@@ -268,42 +242,6 @@ function abrirModalCantidad(producto) {
   $('cantidad-input').value = actual > 0 ? actual : 1;
   mostrar($('modal-cantidad'));
   vibrar(20);
-}
-
-// ---------- cobro manual "Otro", con redondeo editable ----------
-// Igual que los botones de billete rápidos, pero para CUALQUIER cantidad que
-// el cliente dé (no solo las 2-3 que caben en la fila de pago) -- por eso
-// también calcula la sugerencia de cambio aquí, no solo en armarBotonesPago.
-function abrirModalOtro() {
-  const total = totalCentavos(carrito);
-  $('otro-total').textContent = `Total: ${formatoMoneda(total)}`;
-  $('otro-recibido').value = '';
-  $('otro-cambio').value = '';
-  $('otro-redondeo').textContent = '';
-  ocultar($('otro-sugerencia'));
-  ultimaSugerenciaOtro = null;
-  cambioEditadoManualmente = false;
-  mostrar($('modal-otro'));
-  setTimeout(() => $('otro-recibido').focus(), 50);
-}
-
-function actualizarSugerenciaOtro(total, recibido) {
-  const el = $('otro-sugerencia');
-  const sugerencia = recibido > total ? sugerenciaCambio(total, recibido) : null;
-  if (!sugerencia) { ocultar(el); return null; }
-  el.textContent = `Pídele ${formatoMoneda(sugerencia.pedirCentavos)} más → dale ${formatoMoneda(sugerencia.cambioCentavos)}`;
-  mostrar(el);
-  return sugerencia;
-}
-
-function actualizarRedondeoOtro() {
-  const total = totalCentavos(carrito);
-  const recibido = aCentavos(Number($('otro-recibido').value) || 0);
-  const cambioEntregado = aCentavos(Number($('otro-cambio').value) || 0);
-  const redondeo = calcularRedondeo(total, recibido, cambioEntregado);
-  if (redondeo === 0) $('otro-redondeo').textContent = '';
-  else if (redondeo > 0) $('otro-redondeo').textContent = `Redondeo a tu favor: ${formatoMoneda(redondeo)}`;
-  else $('otro-redondeo').textContent = `Le diste ${formatoMoneda(-redondeo)} de más`;
 }
 
 // ============================================================
@@ -562,51 +500,7 @@ $('btn-cantidad-listo').addEventListener('click', () => {
   renderCobrar();
 });
 
-$('btn-cerrar-otro').addEventListener('click', () => ocultar($('modal-otro')));
-$('otro-sugerencia').addEventListener('click', () => {
-  if (!ultimaSugerenciaOtro) return;
-  // Tocar la sugerencia significa "sí le pedí el sobrante y ya me lo dio" --
-  // por eso también sube "Recibí" con lo que se pidió de más. Si solo se
-  // subiera "cambio" sin tocar "recibido", el redondeo saldría mal: se
-  // vería como "diste $5 de más" cuando en realidad, si de verdad pidió los
-  // $5, la cuenta ya quedó exacta.
-  const total = totalCentavos(carrito);
-  const recibidoNuevo = aCentavos(Number($('otro-recibido').value) || 0) + ultimaSugerenciaOtro.pedirCentavos;
-  $('otro-recibido').value = pesosParaInput(recibidoNuevo);
-  $('otro-cambio').value = pesosParaInput(ultimaSugerenciaOtro.cambioCentavos);
-  cambioEditadoManualmente = true;
-  actualizarSugerenciaOtro(total, recibidoNuevo);
-  actualizarRedondeoOtro();
-  vibrar(15);
-});
-$('otro-recibido').addEventListener('input', () => {
-  const total = totalCentavos(carrito);
-  const recibido = aCentavos(Number($('otro-recibido').value) || 0);
-  ultimaSugerenciaOtro = actualizarSugerenciaOtro(total, recibido);
-  // El cambio se precarga con el crudo (lo que "sobra" de verdad) -- la
-  // sugerencia es un atajo aparte (tocarla la aplica), nunca cambia sola lo
-  // que ya se iba a dar, para no dar una sorpresa si no se lee el aviso.
-  if (!cambioEditadoManualmente) $('otro-cambio').value = pesosParaInput(calcularCambio(total, recibido));
-  actualizarRedondeoOtro();
-});
-$('otro-cambio').addEventListener('input', () => {
-  cambioEditadoManualmente = true;
-  actualizarRedondeoOtro();
-});
-$('btn-otro-cobrar').addEventListener('click', async () => {
-  const total = totalCentavos(carrito);
-  const recibido = aCentavos(Number($('otro-recibido').value) || 0);
-  const cambioEntregado = aCentavos(Number($('otro-cambio').value) || 0);
-  const redondeo = calcularRedondeo(total, recibido, cambioEntregado);
-  ocultar($('modal-otro'));
-  await finalizarTicket({
-    metodoPago: 'otro',
-    billeteCentavos: null,
-    recibidoCentavos: recibido,
-    cambioCentavos: cambioEntregado,
-    redondeoCentavos: redondeo,
-  });
-});
+$('paga-con').addEventListener('input', actualizarCambioMostrado);
 
 $('btn-deshacer').addEventListener('click', async () => {
   if (!ultimoGuardado) return;

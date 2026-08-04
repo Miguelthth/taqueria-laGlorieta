@@ -3,7 +3,7 @@
 **Fecha:** 2026-08-03. **Para:** el familiar de Miguel (taquería en Tijuana).
 **Estado:** Fase 0 + Fase 1 **construidas** — la calculadora funciona de
 punta a punta (código en esta carpeta, ver [`CLAUDE.md`](CLAUDE.md) para la
-arquitectura). Probada con `node --test` (34/34) y a mano en navegador
+arquitectura). Probada con `node --test` (26/26) y a mano en navegador
 simulando el flujo completo. **Falta que Miguel la pruebe en su celular
 real** antes de seguir con la Fase 2 — ver la recomendación en la sección 7.
 
@@ -93,8 +93,8 @@ Mis cosas/taqueria/
 ├─ index.html                la app: pantalla Cobrar + pantalla Ajustes
 ├─ js/
 │  ├─ app.js                 GENERADO por build.py — nunca editar a mano
-│  ├─ dinero.js               centavos enteros, formato $, denominaciones MXN
-│  ├─ cambio.js                la ayuda de cambio ("pide $3 → das $100")
+│  ├─ dinero.js               centavos enteros, formato $
+│  ├─ cambio.js                calcularCambio (resta simple, sin sugerencias)
 │  ├─ modelo.js                fechas ISO, crearId
 │  ├─ catalogo.js              productos: cuadrícula + ocultos, en localStorage
 │  ├─ ticket.js                el carrito en construcción (puro)
@@ -103,7 +103,7 @@ Mis cosas/taqueria/
 │  └─ ui.js                    pinta y cablea — punto de entrada
 ├─ css/estilos.css            paleta propia: naranja salsa + verde cilantro
 ├─ build.py                   con 3 validaciones que ya atraparon bugs reales
-├─ tests/*.test.js            34 pruebas, node --test
+├─ tests/*.test.js            26 pruebas, node --test
 ├─ manifest.json, sw.js       PWA instalable, offline
 ├─ icon-512.png               placeholder (taco genérico)
 ├─ docs/CALCULADORA.md
@@ -316,20 +316,23 @@ Cada fase deja algo **usable**, no un pedazo a medias.
 ### Fase 0 — Esqueleto y catálogo ✅ CONSTRUIDA (2026-08-03)
 Estructura de archivos, `build.py` con tres validaciones (imports fuera de
 lista, alias, colisión de nombres — las tres atraparon bugs reales durante la
-construcción), `almacen.js`, PWA instalable, y **Ajustes → cuadrícula de
-cobro / detrás de "Más…" / agregar producto**: precio, categoría, reordenar
-con flechas, mover a cuadrícula u ocultos, desactivar. Precargado un catálogo
-típico de taquería (11 en la cuadrícula + 8 detrás de "Más…") con precios de
-relleno que bloquean el cobro hasta confirmarse.
+construcción), `almacen.js`, PWA instalable, y **Ajustes → "Tus productos"**:
+un checkbox por producto (en la cuadrícula sí/no, tope 11) y arrastrar para
+el orden — no flechas. Precargado un catálogo típico de taquería (11 en la
+cuadrícula + 8 detrás de "Más…") con precios de relleno que bloquean el
+cobro hasta confirmarse.
 
 ### Fase 1 — La calculadora ⭐ CONSTRUIDA (2026-08-03)
 Todo lo de `docs/CALCULADORA.md`: cuadrícula de posiciones fijas, toque corto
 = +1 / toque largo = cantidad grande, "cobrar es guardar" con DESHACER de 6s,
-fila de pago dinámica con la ayuda de cambio calculada ANTES de tocar, `$
-libre`, cobro manual "Otro" con redondeo editable, cronómetro propio (mediana
-/ peor 10%), modo práctica. 34 pruebas `node --test` en verde + flujo
-completo probado a mano en navegador, incluido el caso real de Miguel
-($403/$500 → "pide $3, das $100") byte por byte.
+un campo junto al total ("Paga con…", vacío = pagó exacto) con el cambio
+calculado al instante, `$ libre`, cronómetro propio (mediana / peor 10%),
+modo práctica. 26 pruebas `node --test` en verde + flujo completo probado a
+mano en navegador.
+
+> Nota: la primera versión de esta fase incluía una "ayuda de cambio" que
+> sugería pedir sueltos para dar cambio limpio -- se construyó, se probó, y
+> Miguel pidió quitarla ("ya no vamos a pedir nada"). Ver CLAUDE.md.
 
 Guarda todo en el celular (IndexedDB); la nube y los demás usuarios entran en
 la Fase 2 — para la prueba de campo basta un dispositivo.
