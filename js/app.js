@@ -1143,8 +1143,17 @@ $('btn-cantidad-listo').addEventListener('click', () => {
 $('btn-cerrar-otro').addEventListener('click', () => ocultar($('modal-otro')));
 $('otro-sugerencia').addEventListener('click', () => {
   if (!ultimaSugerenciaOtro) return;
+  // Tocar la sugerencia significa "sí le pedí el sobrante y ya me lo dio" --
+  // por eso también sube "Recibí" con lo que se pidió de más. Si solo se
+  // subiera "cambio" sin tocar "recibido", el redondeo saldría mal: se
+  // vería como "diste $5 de más" cuando en realidad, si de verdad pidió los
+  // $5, la cuenta ya quedó exacta.
+  const total = totalCentavos(carrito);
+  const recibidoNuevo = aCentavos(Number($('otro-recibido').value) || 0) + ultimaSugerenciaOtro.pedirCentavos;
+  $('otro-recibido').value = pesosParaInput(recibidoNuevo);
   $('otro-cambio').value = pesosParaInput(ultimaSugerenciaOtro.cambioCentavos);
   cambioEditadoManualmente = true;
+  actualizarSugerenciaOtro(total, recibidoNuevo);
   actualizarRedondeoOtro();
   vibrar(15);
 });
