@@ -414,11 +414,27 @@ Ninguna es obligatoria; se toman las que él pida al usarlo:
 ## 8. Cómo llega al celular
 
 Igual que MIS APPS: GitHub Pages sirve el sitio (el código es público, los
-datos nunca — viven en el celular y en un Drive privado), y en el teléfono se
-abre la liga y se hace *"Añadir a pantalla de inicio"*. Un ícono, abre sin
-internet.
+datos nunca — viven en el celular; la nube privada llega en la Fase 2), y en
+el teléfono se abre la liga y se hace *"Añadir a pantalla de inicio"*. Un
+ícono, abre sin internet.
 
 En iPhone tiene que ser desde **Safari**, no Chrome, o no se instala.
+
+**Estado (2026-08-03):** `git init` local ya hecho, con el primer commit.
+Falta el repo remoto — **Miguel lo crea vacío en github.com** (público, para
+GitHub Pages gratis) y da la URL; desde ahí `git remote add origin <url> &&
+git push`. GitHub Pages se activa en el repo: Settings → Pages → Deploy from
+branch → `main` / raíz. No hace falta ninguna carpeta `deploy/github/` como
+en COTIZADOR — aquí el repo completo ES la app.
+
+**Actualizarse sin que el caché estorbe:** `build.py` calcula un hash del
+shell (`index.html`+css+js+manifest) y lo escribe como versión del `CACHE` en
+`sw.js` en cada build — a diferencia de MIS APPS (que requiere subir un
+número a mano y alguna vez se le olvidó), aquí es automático: cualquier
+cambio real dispara un service worker "distinto" y el navegador lo nota
+solo. `ui.js` además llama `registration.update()` al cargar y se recarga
+sola en cuanto el nuevo service worker toma control (salvo que haya algo
+escrito sin mandar) — mismo patrón ya probado en MIS APPS.
 
 ---
 

@@ -8,8 +8,19 @@ importa de verdad) en [`docs/CALCULADORA.md`](docs/CALCULADORA.md).
 
 **Estado (2026-08-03): Fase 0 + Fase 1 construidas — la calculadora funciona
 de punta a punta, probada a mano en navegador y con `node --test` en verde.
-Sin nube todavía (Fase 2). Pendiente: que Miguel la pruebe en su celular real
-una semana antes de seguir.**
+Sin nube todavía (Fase 2). `git init` local hecho, dos commits; falta que
+Miguel dé la URL del repo remoto para el primer `git push` (ver PLAN.md
+sección 8). Pendiente: que Miguel la pruebe en su celular real una semana
+antes de seguir.**
+
+**Cambios de esta misma sesión, después de la primera versión:** Ajustes se
+rediseñó (checkbox "en la cuadrícula" + arrastrar para el orden, en vez de
+flechas ↑↓ — ver `renderListaProductos`/`cablearArrastre` en `js/ui.js`); el
+service worker ahora se auto-versiona (ver abajo); y el cobro manual "Otro"
+ahora también ofrece la sugerencia de cambio (antes solo la tenían los
+botones rápidos) — con un bug real corregido en el camino: tocar la
+sugerencia subía "cambio" sin subir "recibí", lo que hacía ver "diste de
+más" en una cuenta que en realidad ya cerraba exacta.
 
 ## Arquitectura
 
@@ -71,6 +82,14 @@ se cuela, `build.py` para con un mensaje explicando exactamente qué
 renombrar -- no ignores esos errores ni los seas creativo con `--force`,
 no existe.
 
+**También reescribe `sw.js` en cada corrida** (`_actualizar_version_cache_sw`):
+el nombre del `CACHE` es un hash del shell (`index.html`+css+js+manifest), no
+un número que alguien tenga que subir a mano -- cualquier cambio real lo
+cambia solo, así el navegador siempre nota que hay un service worker nuevo.
+`js/ui.js` completa el combo con `registration.update()` al cargar y
+auto-recarga en `controllerchange` (salvo que haya algo escrito sin mandar) --
+mismo patrón que MIS APPS, ya probado ahí.
+
 ## Reglas de dinero
 
 - **Todo en centavos enteros** (`dinero.js::aCentavos/aPesos`), nunca
@@ -88,8 +107,11 @@ no existe.
 ## Reglas de la calculadora (no negociables, ver docs/CALCULADORA.md)
 
 - **Las posiciones de la cuadrícula se congelan.** Las mueve él a mano
-  (flechas ↑↓ en Ajustes) y no se reordenan solas nunca, ni por frecuencia de
-  venta. Reordenar solo mata la memoria muscular.
+  (arrastrando en Ajustes → "Tus productos", `cablearArrastre` en `js/ui.js`)
+  y no se reordenan solas nunca, ni por frecuencia de venta. Reordenar solo
+  mata la memoria muscular. Qué producto está en la cuadrícula o detrás de
+  "Más…" se decide con un checkbox por producto (tope 11) -- no hay listas
+  separadas ni botones "subir/bajar".
 - **Cobrar ES guardar.** Tocar un billete guarda el ticket al instante, sin
   paso de "confirmar". El error se corrige con DESHACER (6 segundos), no se
   previene con una pantalla de más.
