@@ -154,9 +154,23 @@ en "Paga con…", se ve "Cambio: $97" al instante -- exacto.
 - Ícono real (`icon-512.png` es un taco placeholder generado con Pillow).
 - Su menú y precios reales -- hoy son precios de relleno que él confirma en
   el primer arranque (pantalla que bloquea cobrar hasta hacerlo).
-- **Diseñado pero SIN construir:** la cola de órdenes
-  ([`docs/ORDENES.md`](docs/ORDENES.md), Fase 3) y los candados contra
-  ventas perdidas (`PLAN.md` sección 8). Agregados al plan el 2026-08-03 a
-  petición de Miguel — **solo diseño, no toques código por esto todavía.**
+- **Diseñado pero SIN construir** (todo agregado al plan el 2026-08-03 a
+  petición de Miguel — **solo diseño, no toques código por esto todavía**):
+  - **Popup de cobro** (`docs/CALCULADORA.md` 6.b, Fase 1.5): al tocar
+    Cobrar sale un popup con el total y "¿con cuánto paga?"; al confirmar,
+    **el cambio se pinta al instante** y guardar (local y Drive) va por
+    detrás. Regla dura: la pantalla nunca espera a nada. Es local puro, no
+    necesita nube. Cuesta **un toque más por ticket** — hay que mirar el
+    cronómetro antes y después.
+  - **Cola de órdenes** ([`docs/ORDENES.md`](docs/ORDENES.md), Fase 3).
+  - **Precios compartidos** (`PLAN.md` 2.2, Fase 2): Ajustes → Precios sube
+    a Drive y baja solo al resto. Instantáneo en el aparato que lo cambia,
+    5-15 s en los demás (límite de Sheets, ver 2.1). **Un precio nuevo nunca
+    altera un ticket a medias** — cada renglón ya guarda su precio.
+  - **Modo dueño** (`PLAN.md` 7.1, Fase 2 en adelante): una contraseña que
+    abre métricas, precios, compras y gastos. En Drive va la **huella**
+    (PBKDF2 con sal), nunca la contraseña. Es cerradura de puerta, no caja
+    fuerte — el código es público y los datos están en el celular.
+  - **Candados** contra ventas perdidas (`PLAN.md` sección 8).
 - Fase 2 en adelante: nube/multi-usuario en tiempo real, órdenes, compras y
   gastos, gráficas. Ver `PLAN.md`.

@@ -12,11 +12,16 @@ detalle de cómo quedó construida la calculadora, ver
 [`docs/CALCULADORA.md`](docs/CALCULADORA.md) y `CLAUDE.md`; para el diseño de
 las órdenes (todavía sin construir), [`docs/ORDENES.md`](docs/ORDENES.md).
 
-> **Agregado al plan el 2026-08-03 (solo diseño, nada construido):** la
-> **cola de órdenes** (sección 4) y los **candados contra ventas perdidas**
-> (sección 8). Las fases se recorrieron para acomodarlos, y salió a la luz
-> una deuda de la Fase 1 que ahora es lo siguiente en la lista: el carrito
-> en curso **no se está guardando** (Fase 1.5).
+> **Agregado al plan el 2026-08-03 (solo diseño, nada construido):**
+> la **cola de órdenes** (sección 4), los **candados contra ventas perdidas**
+> (sección 8), **actualizar precios en todos los aparatos** (2.2), el
+> **popup de cobro** con el cambio al instante y el guardado por detrás
+> (`docs/CALCULADORA.md` 6.b), y el **modo dueño** — contraseña sobre
+> métricas, precios, compras y gastos (7.1).
+>
+> Las fases se recorrieron para acomodarlo todo, y salió a la luz una deuda
+> de la Fase 1 que ahora es lo siguiente en la lista: el carrito en curso
+> **no se está guardando** (Fase 1.5).
 
 ---
 
@@ -31,6 +36,9 @@ las órdenes (todavía sin construir), [`docs/ORDENES.md`](docs/ORDENES.md).
 | **Cómo cobra** | **Al entregar, de mostrador.** Sin cuentas abiertas ni mesas — un ticket a la vez. **Matiz agregado el 2026-08-03:** sí hay una **cola de órdenes** para lo que falta preparar (sección 4). Eso NO es una cuenta abierta — el cliente sigue pagando al recibir; lo que se modela es el rato entre que pide y que se le entrega. |
 | **Órdenes** | **Sí, con cola** (sección 4 y `docs/ORDENES.md`). Una orden son *platos*, cada uno con sus "sin"; `con todo` es el default. El camino de cobro directo no se toca. |
 | **Candados** | **Sí** (sección 8): la app no debe permitir que una venta se pierda — ni un ticket a medias, ni una orden entregada sin cobrar, ni algo capturado que nunca se respalda. |
+| **Precios** | Se cambian desde **Ajustes → Precios**, suben a Drive y bajan solos a los demás aparatos (sección 2.2). Un precio nuevo **nunca** altera un ticket ya empezado ni los reportes viejos. |
+| **Cobro** | Al tocar **Cobrar** sale un **popup**: total, con cuánto paga, Confirmar → **el cambio se ve al instante** y el guardado a Drive va por detrás, sin que nadie espere (`docs/CALCULADORA.md` 6.b). |
+| **Quién ve el dinero** | **Solo el dueño** (sección 7.1). Una contraseña — el "modo dueño" — abre métricas, precios, compras y gastos. Los empleados cobran y levantan órdenes, nada más. |
 | **Aparato** | **Celular en la mano.** Es el caso más apretado, se diseña para él (~12 botones sin desplazar). |
 | **Catálogo** | Arranca con uno **típico de taquería**, con precios de relleno que él corrige en Ajustes antes del primer cobro. |
 
@@ -160,6 +168,43 @@ reescritura.
 **Escribir al mismo tiempo desde dos celulares no rompe nada**: los tickets
 solo se agregan, cada uno con ID único (dispositivo + momento), y el backend
 usa `LockService` para no encimar escrituras.
+
+### 2.2 Actualizar precios en todos los aparatos
+
+**Pedido de Miguel el 2026-08-03:** una sección para actualizar precios que
+los mande a Drive y **todos los dispositivos se actualicen al instante**.
+
+Cómo queda:
+
+- **Ajustes → Precios**: una lista corta, un renglón por producto, se
+  teclean los nuevos y se guarda. Al guardar sube a Drive en una sola
+  llamada, no una por producto.
+- **En el aparato donde se cambian, el cambio es inmediato** — no espera a
+  nada.
+- **En los demás aparatos entran solos**, sin que nadie toque nada, por el
+  sondeo barato de la sección 2.1. Además hay un **"actualizar ahora"** por
+  si se quiere forzar.
+- Cuando entran precios nuevos, la app lo dice: *"Precios actualizados"*.
+
+**Lo instantáneo, dicho con honestidad:** en el aparato del dueño el cambio
+es instantáneo de verdad; **en los otros tarda entre 5 y 15 segundos**,
+porque Google Sheets no avisa solo, hay que preguntarle (mismo límite de la
+sección 2.1, no hay forma de esquivarlo con Sheets). En la práctica esto no
+se nota: los precios se cambian antes de abrir o entre clientes, no a media
+fila. Si algún día hiciera falta instantáneo de verdad (menos de 1 segundo),
+la salida sigue siendo Firebase/Supabase — ver 2.1.
+
+**Un precio nuevo NUNCA cambia un ticket a medias.** Cada renglón del
+carrito guarda el precio con el que se agregó (`precioUnitarioCentavos` en
+`js/ticket.js` — ya funciona así hoy). Si el dueño sube el precio del taco
+mientras el cobrador lleva 5 capturados, esos 5 se cobran al precio viejo y
+el cambio entra en el siguiente ticket. Sin esto, el total cambiaría solo
+frente al cliente — inaceptable.
+
+Por lo mismo, **los reportes históricos no se mueven** cuando cambian los
+precios: cada venta ya guardó a cuánto se vendió.
+
+**Quién puede cambiarlos:** solo el dueño — ver la sección 7.1.
 
 ---
 
@@ -354,6 +399,68 @@ Todo en SVG a mano, dentro de la app, sin librerías.
    quién lo capturó, y sirve para rastrear un error tanto como para saber
    quién tiene el turno pesado.
 
+### 7.1 Modo dueño — las métricas bajo contraseña
+
+**Pedido de Miguel el 2026-08-03:** *"la parte de métricas quiero que tenga
+una contraseña, que se respalde en Drive, para que nadie pueda leer las
+métricas más que los dueños"*.
+
+**Esto contesta una pregunta que quedó abierta** en la sección 12: ahí decía
+que faltaba saber si los empleados debían ver el dinero del negocio, y que
+se iba a construir un interruptor por usuario prendido por omisión. Ya no
+hace falta el interruptor — la respuesta es **no**, y se resuelve con una
+sola llave.
+
+**Una sola contraseña, no varias sueltas.** En vez de ponerle candado a cada
+pantalla por separado, hay un **modo dueño** que se desbloquea una vez y
+abre lo que es del dueño:
+
+| Bajo llave | Libre para todos |
+|---|---|
+| Métricas y gráficas (sección 7) | Cobrar |
+| **Cambiar precios** (sección 2.2) | Levantar órdenes |
+| Compras y gastos (secciones 5 y 6) | Ver la cola |
+| Alta y baja de usuarios | Su propio resumen del día |
+
+Poner los **precios** bajo la misma llave es la razón principal para tener
+llave: quien puede cambiar precios puede cobrar de menos y quedarse con la
+diferencia. Si las métricas se esconden pero los precios no, el candado no
+sirve de mucho.
+
+**Cómo se guarda, para que "respaldarla en Drive" no sea un problema:** en
+Drive **nunca** va la contraseña, va su **huella** (hash con sal, PBKDF2 —
+la misma técnica que ya usa `shared/cifrado.js` en MIS APPS). La app compara
+huellas. Así, aunque alguien abra la hoja de cálculo, **no puede leer la
+contraseña**, ni siquiera Miguel. Y como vive en Drive, sirve igual en todos
+los aparatos y sobrevive a reinstalar la app.
+
+**Hasta dónde protege, dicho claro.** La app es un sitio público en GitHub
+Pages: el código lo puede leer cualquiera, y los datos viven en el propio
+celular. Entonces:
+
+- ✅ **Sí evita** que un empleado agarre el celular y se meta a ver las
+  ventas, la utilidad o lo que se paga de renta. **Ése es el problema real**
+  y lo resuelve bien.
+- ❌ **No protege** contra alguien técnico con el celular desbloqueado en la
+  mano: los datos están ahí y se pueden leer con las herramientas del
+  navegador.
+
+Es una **cerradura de puerta, no una caja fuerte** — el mismo criterio que
+ya se escribió para el PIN de MIS APPS. Encriptar todo de verdad sí es
+posible, pero rompería lo que a Miguel le sirve: poder abrir la hoja en
+Excel y ver sus números.
+
+**Detalles a resolver al construirlo:**
+- ¿Se pide cada vez que se entra a Métricas, o se queda desbloqueado un
+  rato? (Pedirla cada vez es más seguro; cada 30 min es más usable.)
+- ¿Qué pasa si se le olvida? Sin manera de recuperarla, el dueño se queda
+  fuera de sus propios números. Propuesta: se puede reponer desde Ajustes en
+  un aparato **que ya esté desbloqueado**, y si no queda ninguno, borrando y
+  volviendo a poner la huella directo en la hoja de Drive (Miguel tiene
+  acceso).
+- Face ID / huella del celular como atajo, igual que en MIS APPS
+  (`shared/passkey.js`) — cómodo, y ahí ya está resuelto cómo se hace.
+
 ---
 
 ## 8. Candados — que ninguna venta se pierda
@@ -474,18 +581,25 @@ la Fase 2 — para la prueba de campo basta un dispositivo.
 > confirmar precios en Ajustes antes de cobrar. Ver `CLAUDE.md` para el
 > puerto de preview local si se prueba desde esta sesión.
 
-### Fase 1.5 — Los candados que no dependen de nada ⏭️ LO SIGUIENTE
-Chica y va primero, antes que cualquier cosa nueva — son huecos de la Fase 1,
-no features (ver sección 8):
+### Fase 1.5 — Lo que se puede hacer sin nube ⏭️ LO SIGUIENTE
+Chica y va primero, antes que cualquier cosa nueva. Lo primero son huecos de
+la Fase 1, no features (ver sección 8); lo último es el popup, que Miguel
+pidió y tampoco necesita servidor:
 
 - **Guardar el carrito en curso en cada toque** y recuperarlo al abrir.
   `docs/CALCULADORA.md` ya lo promete y el código **no lo cumple** — el
   carrito vive solo en memoria. Es la deuda más clara que hay hoy.
 - **Apagar solo el modo práctica** (al cambiar de día o tras X minutos).
 - **Aviso de ticket olvidado** si el carrito lleva N minutos sin tocarse.
+- **El popup de cobro** (`docs/CALCULADORA.md` 6.b) — total, con cuánto
+  paga, Confirmar, y el cambio en grande al instante. Es **local puro**: no
+  necesita nube, y la parte de "guardar por detrás sin que nadie espere" ya
+  aplica hoy contra IndexedDB. Cuando llegue Drive (Fase 2) se le cuelga
+  atrás sin cambiar la pantalla.
 
-Se puede hacer aunque la prueba de campo siga corriendo — no cambia nada de
-lo que él ya está usando, solo deja de perder cosas.
+Se puede hacer aunque la prueba de campo siga corriendo — el popup sí lo va
+a notar, así que conviene entregárselo junto y **mirar el cronómetro antes y
+después** para saber si le costó tiempo.
 
 ### Fase 2 — Nube, usuarios y tiempo real
 **Se adelantó** (antes era la 3): con varios usuarios compartiendo información
@@ -501,8 +615,17 @@ Apps Script), el sondeo barato de ~10 segundos de la sección 2.1, respaldo
 diario automático en carpeta hermana, y `exportarTodo`/`importarTodo` para la
 mudanza de cuenta.
 
-Aquí también entra el **candado 5** (contador de ventas sin respaldar, con
-aviso fuerte si crece o si lleva días — ver sección 8).
+Aquí también entran:
+
+- El **candado 5** (contador de ventas sin respaldar, con aviso fuerte si
+  crece o si lleva días — sección 8).
+- **Ajustes → Precios** y su bajada automática al resto de los aparatos
+  (sección 2.2). Es lo primero que aprovecha la nube y lo más fácil de
+  probar: se cambia un precio en un celular y se ve entrar en el otro.
+- El **modo dueño** (sección 7.1): la contraseña, su huella guardada en
+  Drive, y la llave puesta al menos sobre **precios** — que es lo que ya
+  existe para proteger. Métricas, compras y gastos se le van sumando
+  conforme se construyen.
 
 ### Fase 3 — Órdenes (la cola)
 Todo lo de [`docs/ORDENES.md`](docs/ORDENES.md): `+ Orden`, platos con sus
@@ -560,9 +683,11 @@ jamás vuelve a la cola. Se decide con el código enfrente en la Fase 3.
 → nueva versión"** en script.google.com. Guardar en el editor no despliega.
 
 ### Fase 5 — Reportes y gráficas
-Sección 7 completa. Con las órdenes ya construidas se suman gratis dos
-números que hoy no existirían: **cuánto tarda una orden** de que se levanta a
-que se entrega, y **cuántas órdenes se atienden por hora** en el pico.
+Sección 7 completa, **toda detrás del modo dueño** (sección 7.1) — es
+justo lo que Miguel quiere que nadie más lea. Con las órdenes ya construidas
+se suman gratis dos números que hoy no existirían: **cuánto tarda una orden**
+de que se levanta a que se entrega, y **cuántas órdenes se atienden por
+hora** en el pico.
 
 ### Fase 6 — Lo que se decide después de verlo funcionando
 Ninguna es obligatoria; se toman las que él pida al usarlo:
@@ -638,12 +763,11 @@ escrito sin mandar) — mismo patrón ya probado en MIS APPS.
   queda la Fase 0.
 - **Si maneja fiados** y si vende cerveza (cambia si conviene separar bebidas
   con permiso aparte).
-- **Quiénes son los usuarios y qué ve cada quien.** Quedó que todos comparten
-  la información en tiempo real. Falta saber si "todos" incluye empleados: la
-  mayoría de los dueños no quiere que el taquero vea la utilidad ni lo que se
-  paga de renta. Se va a construir con un interruptor por usuario —
-  *"puede ver el dinero del negocio"*, prendido por omisión — para no tener
-  que decidirlo hoy ni rehacer nada después.
+- ~~**Quiénes son los usuarios y qué ve cada quien.**~~ ✅ **RESUELTO el
+  2026-08-03:** los empleados NO ven el dinero del negocio. En vez del
+  interruptor por usuario que se iba a construir, hay una contraseña — el
+  **modo dueño** — que abre métricas, precios, compras y gastos. Ver la
+  sección 7.1.
 - **Dónde va a vivir la carpeta.** Hoy quedó en `Mis cosas\taqueria`, fuera de
   SUMETEC a propósito — no es del negocio de Miguel y no debe mezclarse con
   sus reglas fiscales. Tampoco es sub-app de MIS APPS: es su propia app, con

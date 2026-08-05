@@ -155,7 +155,7 @@ toda la app:
 > sugerencia sigue en el historial de git si algún día se quiere retomar,
 > pero hoy no existe.
 
-El diseño de verdad, tal como quedó construido:
+### 6.a Lo construido hoy (versión de la Fase 1)
 
 - Junto al **TOTAL**, un campo siempre visible: **"Paga con…"**.
 - Se teclea cuánto da el cliente y el **cambio se ve al instante**, debajo,
@@ -163,8 +163,7 @@ El diseño de verdad, tal como quedó construido:
   billetes, solo la resta.
 - **Vacío = pagó exacto.** No hay que teclear nada para el caso más común;
   tocar "Cobrar" con el campo en blanco cobra el total tal cual.
-- Un solo botón, **Cobrar**, abajo en la zona del pulgar. Sigue siendo
-  "cobrar es guardar": un toque, sin confirmar aparte.
+- Un solo botón, **Cobrar**, abajo en la zona del pulgar.
 
 ```
   TOTAL              $403
@@ -172,6 +171,67 @@ El diseño de verdad, tal como quedó construido:
   ...
   [        Cobrar        ]
 ```
+
+### 6.b Lo que sigue: el cobro pasa a un popup (pedido 2026-08-03)
+
+**Miguel lo pidió así:** *"cuando le des en cobrar te aparece un popup con la
+cantidad que cobrarás, qué cantidad te dará el cliente, le das confirmar, se
+hace el registro en Drive pero en el background porque instantáneamente tiene
+que decirle al cobrador cuánto le sobra"*.
+
+El campo "Paga con…" **se sale de la pantalla principal y se mueve al
+popup**. No se suma un paso: se cambia de lugar.
+
+```
+   tocas [ Cobrar ]
+        ↓
+┌─────────────────────────────┐
+│         A COBRAR            │
+│          $403               │  ← grande, para leerlo en voz alta
+│                             │
+│   ¿Con cuánto paga?         │
+│   [        500        ]     │  ← vacío = paga exacto
+│         cambio: $97         │  ← se actualiza mientras teclea
+│                             │
+│   [      CONFIRMAR      ]   │
+└─────────────────────────────┘
+        ↓  (al instante, sin esperar NADA)
+┌─────────────────────────────┐
+│         SU CAMBIO           │
+│           $97               │  ← gigantesco, es LA respuesta
+│                             │
+│   [ Listo ]      ↺ Deshacer │
+└─────────────────────────────┘
+```
+
+**La regla dura del background**, que es el corazón de lo que pidió:
+
+> La pantalla del cambio se pinta **primero**. Guardar en el aparato y subir
+> a Drive pasa **después**, sin que nadie espere. La app **nunca** deja al
+> cobrador viendo una rueda girando con el cliente enfrente.
+
+En números: el cambio en pantalla en **menos de 100 ms** (es una resta, ya
+está todo local); el guardado local y la subida a Drive van por su cuenta. Si
+la subida falla, no se avisa en ese momento — se reintenta sola, y si de
+verdad se queda atorada, lo dice el **candado 5** (`PLAN.md` sección 8), no
+un error a media venta.
+
+**El costo honesto:** hoy cobrar es 1 toque (`Cobrar`); con el popup son 2
+(`Cobrar` → `Confirmar`). Es un toque más por ticket, ~200 al día. Se acepta
+porque Miguel lo pidió y porque el cambio se lee mucho mejor en grande, pero
+**el cronómetro (sección 9) va a decir si de verdad costó** — si la mediana
+sube feo, se replantea.
+
+**DESHACER se queda.** Confirmar y deshacer no se pelean: el popup es donde
+se captura el dinero, no un "¿estás seguro?". El error de haber cobrado mal
+sigue arreglándose con la barra de deshacer.
+
+Detalles a resolver al construirlo:
+- Si lo recibido es **menor** que el total, ¿avisar, bloquear, o dejarlo
+  pasar como abono? (Hoy `calcularCambio` nunca da negativo.)
+- ¿El popup se cierra solo tras unos segundos, o siempre hay que tocar
+  "Listo"? Cerrarse solo ahorra un toque; obligar a tocar evita que el
+  siguiente cliente empiece sobre una pantalla vieja.
 
 ---
 
