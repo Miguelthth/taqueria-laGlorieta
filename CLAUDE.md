@@ -139,8 +139,34 @@ flujo completo con `PointerEvent` (los botones escuchan `pointerdown`/
 confirmó el caso real de Miguel: 7 tortas + 1 adobada = $403, escribes $500
 en "Paga con…", se ve "Cambio: $97" al instante -- exacto.
 
+### ⚠️ Los `PointerEvent` sintéticos NO prueban el táctil
+
+**Lección pagada el 2026-08-05.** El arrastre para reordenar productos se
+declaró "probado" porque pasó una prueba con `PointerEvent` disparados por
+código en un navegador de escritorio. **Con el dedo no funciona** — Miguel
+lo reportó al primer intento en su celular.
+
+Por qué: un gesto táctil real **compite con el scroll del navegador**. El
+navegador decide si lo tuyo es un arrastre o un desplazamiento de la
+página, y si se queda con el gesto dispara `pointercancel` y mata el
+arrastre. Un `PointerEvent` hecho por código nunca entra en esa pelea, así
+que siempre "pasa". Súmale que la manija son 30×30 px, por debajo de los
+44 px que necesita un dedo.
+
+**Regla:** nada que dependa de gestos táctiles (arrastrar, toque largo,
+deslizar) se declara terminado sin probarlo **en un celular real**. Escribe
+la prueba sintética igual, pero como red contra regresiones -- **no** como
+evidencia de que funciona.
+
 ## Pendiente
 
+- ⚠️ **Seis defectos reportados por Miguel el 2026-08-05** al usarla por
+  primera vez en su celular — todos verificados contra el código, todos de
+  la Fase 1. Están detallados en `PLAN.md` 9.1: el teclado de cantidad no
+  reemplaza lo escrito, la ✕ de "Más" es diminuta, editar producto usa
+  `window.prompt`, "Más" se cierra tras cada toque y no acepta toque largo,
+  **el arrastre no jala con el dedo**, y el catálogo debe sincronizarse
+  completo (no solo precios, eso es Fase 2). Van en la Fase 1.5.
 - ⚠️ **DEUDA REAL, lo primero que hay que arreglar: el carrito en curso no se
   guarda.** `docs/CALCULADORA.md` sección 8 promete que "el ticket a medias
   sobrevive a que se bloquee el celular... se guarda en cada toque", pero

@@ -36,7 +36,7 @@ las órdenes (todavía sin construir), [`docs/ORDENES.md`](docs/ORDENES.md).
 | **Cómo cobra** | **Al entregar, de mostrador.** Sin cuentas abiertas ni mesas — un ticket a la vez. **Matiz agregado el 2026-08-03:** sí hay una **cola de órdenes** para lo que falta preparar (sección 4). Eso NO es una cuenta abierta — el cliente sigue pagando al recibir; lo que se modela es el rato entre que pide y que se le entrega. |
 | **Órdenes** | **Sí, con cola** (sección 4 y `docs/ORDENES.md`). Una orden son *platos*, cada uno con sus "sin"; `con todo` es el default. El camino de cobro directo no se toca. |
 | **Candados** | **Sí** (sección 8): la app no debe permitir que una venta se pierda — ni un ticket a medias, ni una orden entregada sin cobrar, ni algo capturado que nunca se respalda. |
-| **Precios** | Se cambian desde **Ajustes → Precios**, suben a Drive y bajan solos a los demás aparatos (sección 2.2). Un precio nuevo **nunca** altera un ticket ya empezado ni los reportes viejos. |
+| **Precios y catálogo** | Se cambian desde **Ajustes**, suben a Drive y bajan solos a los demás aparatos (sección 2.2) — precio, nombre, categoría, orden y si está en la cuadrícula. Un precio nuevo **nunca** altera un ticket ya empezado ni los reportes viejos. |
 | **Cobro** | Al tocar **Cobrar** sale un **popup**: total, con cuánto paga, Confirmar → **el cambio se ve al instante** y el guardado a Drive va por detrás, sin que nadie espere (`docs/CALCULADORA.md` 6.b). |
 | **Quién ve el dinero** | **Solo el dueño** (sección 7.1). Una contraseña — el "modo dueño" — abre métricas, precios, compras y gastos. Los empleados cobran y levantan órdenes, nada más. |
 | **Aparato** | **Celular en la mano.** Es el caso más apretado, se diseña para él (~12 botones sin desplazar). |
@@ -169,16 +169,24 @@ reescritura.
 solo se agregan, cada uno con ID único (dispositivo + momento), y el backend
 usa `LockService` para no encimar escrituras.
 
-### 2.2 Actualizar precios en todos los aparatos
+### 2.2 Actualizar el catálogo en todos los aparatos
 
 **Pedido de Miguel el 2026-08-03:** una sección para actualizar precios que
 los mande a Drive y **todos los dispositivos se actualicen al instante**.
+**Ampliado el 2026-08-05:** no solo los precios — **todo el catálogo**
+(nombre, precio, categoría, posición en la cuadrícula, y si está activo o
+detrás de "Más…"). Si se edita un producto en un celular, tiene que quedar
+igual en todos.
 
 Cómo queda:
 
 - **Ajustes → Precios**: una lista corta, un renglón por producto, se
   teclean los nuevos y se guarda. Al guardar sube a Drive en una sola
   llamada, no una por producto.
+- **Editar un producto** (nombre, precio, categoría, cuadrícula sí/no) sube
+  igual, en la misma llamada — el catálogo viaja completo, no por campos
+  sueltos. Es chico (unas docenas de renglones), no vale la pena
+  complicarlo.
 - **En el aparato donde se cambian, el cambio es inmediato** — no espera a
   nada.
 - **En los demás aparatos entran solos**, sin que nadie toque nada, por el
@@ -596,10 +604,73 @@ pidió y tampoco necesita servidor:
   necesita nube, y la parte de "guardar por detrás sin que nadie espere" ya
   aplica hoy contra IndexedDB. Cuando llegue Drive (Fase 2) se le cuelga
   atrás sin cambiar la pantalla.
+- **Los seis defectos de uso que reportó Miguel** al probarla en el celular
+  — ver 9.1 aquí abajo. Son de la Fase 1, no features nuevas.
 
 Se puede hacer aunque la prueba de campo siga corriendo — el popup sí lo va
 a notar, así que conviene entregárselo junto y **mirar el cronómetro antes y
 después** para saber si le costó tiempo.
+
+#### 9.1 Defectos reportados el 2026-08-05 (primer uso en celular real)
+
+Todos verificados contra el código. Van en la Fase 1.5 salvo donde se diga.
+
+**1. El teclado de cantidad no reemplaza lo que ya había.**
+`abrirModalCantidad` pone el valor en el campo pero **nunca lo selecciona ni
+le da foco**. Si había un `1` y se teclea `5`, queda `15`. *Arreglo:* al
+abrir, foco + seleccionar todo, para que lo primero que se teclee reemplace.
+Ojo en móvil: `select()` justo en el `focus` a veces no pega — puede
+necesitar un `setTimeout` corto, como ya se hizo con los otros campos.
+
+**2. La ✕ para cerrar "Más" es diminuta.**
+`.btn-cerrar` son 20 px de letra con 6 px de padding: apenas se ve y es
+difícil de atinar. *Arreglo:* área de toque de **44×44 px como mínimo** (el
+estándar para un dedo). Revisar de paso las demás ✕ de la app, que salen del
+mismo estilo.
+
+**3. Editar un producto usa `window.prompt` y solo pide nombre y precio.**
+Son dos cuadros grises del navegador encadenados, feos y bloqueantes — y en
+algunos navegadores de celular ni salen. *Arreglo:* un **popup propio** con
+todos los campos: nombre, precio, categoría, y si va en la cuadrícula. Igual
+que los demás modales de la app.
+
+**4. En "Más" no se puede tocar varias veces ni mantener presionado.**
+`abrirHojaMas` cierra la hoja después de cada toque (`ocultar($('hoja-mas'))`)
+y usa un `click` pelón, sin `cablearToqueLargo`. Resultado: para tres
+productos hay que abrir "Más" tres veces, y no hay forma de meter cantidad.
+*Arreglo:* que la hoja se comporte **igual que la cuadrícula principal** —
+toque = +1 con su globito de cantidad, toque largo = teclado de cantidad, y
+**la hoja NO se cierra sola**; se cierra con la ✕ (que ahora sí se ve, punto
+2) cuando ya se terminó.
+
+**5. ⚠️ No se puede arrastrar con el dedo para reordenar.** *(el importante)*
+Dos causas probables, las dos reales:
+- La manija `⠿` mide **30×30 px** — por debajo del mínimo para un dedo. Al
+  fallar el toque se agarra el renglón, que tiene `touch-action: pan-y`, y
+  el celular hace scroll en vez de arrastrar.
+- `pointerdown` **nunca llama a `e.preventDefault()`**, así que el navegador
+  puede quedarse con el gesto y disparar `pointercancel`, que mata el
+  arrastre a medias.
+
+*Arreglo:* manija de 44×44, `preventDefault()` en `pointerdown`, y **además
+permitir arrastrar manteniendo presionado el renglón completo** — que es lo
+que Miguel intentó y hoy no está cableado en ningún lado. Y **probarlo en un
+celular de verdad**, no con eventos simulados (ver la nota de abajo).
+
+**6. Que los cambios de producto se sincronicen.** Ya está en el plan
+(sección 2.2), pero **se amplía**: no solo los precios — también nombre,
+categoría, posición en la cuadrícula y si está activo. Todo el catálogo.
+**Esto es Fase 2**, necesita la nube.
+
+> **Lección de método, para no repetirla:** el arrastre se dio por
+> "verificado" porque pasó una prueba con `PointerEvent` sintéticos en un
+> navegador de escritorio. **Eso no prueba que funcione con el dedo** —
+> los gestos táctiles reales compiten con el scroll del navegador, y ahí es
+> donde se rompe. Un `PointerEvent` disparado por código nunca reproduce esa
+> pelea. Regla nueva: **nada que dependa de gestos táctiles (arrastrar,
+> toque largo, deslizar) se declara terminado sin probarlo en un celular
+> real.** Se puede escribir la prueba sintética igual, pero como red de
+> seguridad contra regresiones, no como evidencia de que funciona.
 
 ### Fase 2 — Nube, usuarios y tiempo real
 **Se adelantó** (antes era la 3): con varios usuarios compartiendo información
