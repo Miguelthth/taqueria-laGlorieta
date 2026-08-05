@@ -717,12 +717,14 @@ el teléfono se abre la liga y se hace *"Añadir a pantalla de inicio"*. Un
 
 En iPhone tiene que ser desde **Safari**, no Chrome, o no se instala.
 
-**Estado (2026-08-03):** `git init` local ya hecho, con el primer commit.
-Falta el repo remoto — **Miguel lo crea vacío en github.com** (público, para
-GitHub Pages gratis) y da la URL; desde ahí `git remote add origin <url> &&
-git push`. GitHub Pages se activa en el repo: Settings → Pages → Deploy from
-branch → `main` / raíz. No hace falta ninguna carpeta `deploy/github/` como
-en COTIZADOR — aquí el repo completo ES la app.
+**Estado (2026-08-03):** repo creado y subido —
+github.com/Miguelthth/taqueria-laGlorieta, rama `main`. **Pendiente de
+Miguel:** activar Settings → Pages → Deploy from branch → `main` / raíz
+(un toggle, una sola vez) — no tengo su sesión de GitHub conectada para
+hacerlo yo. Una vez activo, la liga queda en
+`https://miguelthth.github.io/taqueria-laGlorieta/`. No hace falta ninguna
+carpeta `deploy/github/` como en COTIZADOR — aquí el repo completo ES la
+app.
 
 **Actualizarse sin que el caché estorbe:** `build.py` calcula un hash del
 shell (`index.html`+css+js+manifest) y lo escribe como versión del `CACHE` en

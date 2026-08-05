@@ -8,10 +8,10 @@ importa de verdad) en [`docs/CALCULADORA.md`](docs/CALCULADORA.md).
 
 **Estado (2026-08-03): Fase 0 + Fase 1 construidas — la calculadora funciona
 de punta a punta, probada a mano en navegador y con `node --test` en verde.
-Sin nube todavía (Fase 2). `git init` local hecho, dos commits; falta que
-Miguel dé la URL del repo remoto para el primer `git push` (ver PLAN.md
-sección 8). Pendiente: que Miguel la pruebe en su celular real una semana
-antes de seguir.**
+Sin nube todavía (Fase 2). **Repo en GitHub y publicado**:
+github.com/Miguelthth/taqueria-laGlorieta, rama `main`, GitHub Pages activo
+en `https://miguelthth.github.io/taqueria-laGlorieta/`. Pendiente: que
+Miguel la pruebe en su celular real una semana antes de seguir.**
 
 **Cambios de esta misma sesión, después de la primera versión:**
 - Ajustes se rediseñó: checkbox "en la cuadrícula" + arrastrar para el orden,
