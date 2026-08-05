@@ -36,6 +36,7 @@ las órdenes (todavía sin construir), [`docs/ORDENES.md`](docs/ORDENES.md).
 | **Cómo cobra** | **Al entregar, de mostrador.** Sin cuentas abiertas ni mesas — un ticket a la vez. **Matiz agregado el 2026-08-03:** sí hay una **cola de órdenes** para lo que falta preparar (sección 4). Eso NO es una cuenta abierta — el cliente sigue pagando al recibir; lo que se modela es el rato entre que pide y que se le entrega. |
 | **Órdenes** | **Sí, con cola** (sección 4 y `docs/ORDENES.md`). Una orden son *platos*, cada uno con sus "sin"; `con todo` es el default. El camino de cobro directo no se toca. |
 | **Candados** | **Sí** (sección 8): la app no debe permitir que una venta se pierda — ni un ticket a medias, ni una orden entregada sin cobrar, ni algo capturado que nunca se respalda. |
+| **Corregir un ticket** | **Sí, en un lugar discreto** (sección 8.1). Corregir es **actualizar** el mismo ticket, nunca borrarlo y recrearlo — así no se duplica la venta en Drive. Queda registrado quién corrigió, cuándo y cuánto decía antes. |
 | **Precios y catálogo** | Se cambian desde **Ajustes**, suben a Drive y bajan solos a los demás aparatos (sección 2.2) — precio, nombre, categoría, orden y si está en la cuadrícula. Un precio nuevo **nunca** altera un ticket ya empezado ni los reportes viejos. |
 | **Cobro** | Al tocar **Cobrar** sale un **popup**: total, con cuánto paga, Confirmar → **el cambio se ve al instante** y el guardado a Drive va por detrás, sin que nadie espere (`docs/CALCULADORA.md` 6.b). |
 | **Quién ve el dinero** | **Solo el dueño** (sección 7.1). Una contraseña — el "modo dueño" — abre métricas, precios, compras y gastos. Los empleados cobran y levantan órdenes, nada más. |
@@ -546,6 +547,67 @@ se cuenta efectivo ni se cuadra sobrante/faltante. Es solo la revisión de que
 nada quedó a medias. El corte de caja de verdad sigue pendiente, en la
 Fase 6.
 
+### 8.1 Corregir un ticket ya cobrado
+
+**Pedido de Miguel el 2026-08-05:** *"en una parte sutil de la calculadora
+pon algo para editar los tickets por si el cobrador se equivocó, y que
+actualice el Drive para que no se duplique la venta"*.
+
+Hoy solo existe **DESHACER**, y dura 6 segundos. Pasado ese rato, un ticket
+mal cobrado se queda mal para siempre — o se borra y se vuelve a capturar,
+que es justo como se duplican las ventas.
+
+**Dónde va: escondido, a propósito.** No es algo de la hora pico, es algo de
+"me equivoqué hace rato". Un acceso discreto (`últimos tickets`) que abre la
+lista que **ya existe** en Ajustes → *Tickets de hoy*. Ahí se toca el ticket
+y se corrige: productos, cantidades, y con cuánto pagó.
+
+#### La regla técnica que pidió Miguel, y por qué no es obvia
+
+> **Corregir un ticket es ACTUALIZARLO, nunca borrarlo y volver a crearlo.**
+> El ticket conserva su mismo ID de por vida. En Drive se sobrescribe su
+> renglón; no se agrega uno nuevo.
+
+Suena obvio y no lo es: **rompe una suposición que ya está escrita en este
+plan**. En la sección de conflictos (Fase 4) dice que los tickets *"solo se
+agregan, cada uno con ID único — se juntan sin pelearse"*. Eso deja de ser
+cierto en cuanto un ticket se puede editar. Lo que hay que agregar:
+
+- Cada ticket lleva **`modificado`** (momento del último cambio). Al
+  sincronizar, si el ID ya existe en Drive, **se sobrescribe** ese renglón;
+  gana el `modificado` más reciente. Es el mismo trato que ya se le da a las
+  órdenes (que también cambian de estado), no un caso nuevo.
+- Si se corrige **sin señal**, la corrección espera en la cola igual que una
+  venta nueva, y sube cuando haya. La cola tiene que saber distinguir
+  *"agregar"* de *"corregir"*, o al reconectar mandaría el ticket dos veces
+  — que es exactamente lo que Miguel quiere evitar.
+
+#### El otro riesgo: corregir hacia abajo es como se roba
+
+Bajarle el total a un ticket ya cobrado y quedarse con la diferencia es la
+forma más simple de robar en un negocio de efectivo. Entonces:
+
+- El ticket guarda **quién lo corrigió y cuándo**, y **cuánto decía antes**.
+  Es barato (tres campos) y sin eso no hay forma de notarlo nunca.
+- Los tickets corregidos se ven marcados en la lista y **se pueden filtrar en
+  los reportes** ("tickets corregidos del mes").
+- **Propuesta, falta que Miguel decida:** que corregir esté bajo el **modo
+  dueño** (sección 7.1), igual que los precios. El argumento es el mismo —
+  quien puede bajar un total puede quedarse la diferencia. La contra es que
+  si el dueño no está, un error se queda sin arreglar hasta que llegue.
+  Ver la sección 12.
+
+**Borrar un ticket** (que hoy sí se puede desde la lista) queda bajo las
+mismas reglas: se marca como cancelado con su motivo y su autor, **no
+desaparece**. Un renglón que se esfuma sin dejar rastro es indistinguible de
+un robo.
+
+**Cuándo se construye:** la corrección local va en la **Fase 1.5** (es la
+lista que ya existe más un formulario). La parte de *"que actualice el
+Drive sin duplicar"* es **Fase 2**, y hay que construir la cola con el
+`modificado` desde el primer día — si la cola nace solo-agregar, rehacerla
+después es peor.
+
 ---
 
 ## 9. Fases
@@ -606,6 +668,11 @@ pidió y tampoco necesita servidor:
   atrás sin cambiar la pantalla.
 - **Los seis defectos de uso que reportó Miguel** al probarla en el celular
   — ver 9.1 aquí abajo. Son de la Fase 1, no features nuevas.
+- **Corregir un ticket ya cobrado** (sección 8.1), la parte local: el acceso
+  discreto, el formulario sobre la lista que ya existe, y los campos de
+  rastro (quién, cuándo, cuánto decía antes). Sincronizarlo sin duplicar es
+  Fase 2, **pero los campos se agregan desde ahora** para no migrar datos
+  después.
 
 Se puede hacer aunque la prueba de campo siga corriendo — el popup sí lo va
 a notar, así que conviene entregárselo junto y **mirar el cronómetro antes y
@@ -697,6 +764,9 @@ Aquí también entran:
   Drive, y la llave puesta al menos sobre **precios** — que es lo que ya
   existe para proteger. Métricas, compras y gastos se le van sumando
   conforme se construyen.
+- La cola de sincronización que **distingue "agregar" de "corregir"**
+  (sección 8.1), para que corregir un ticket lo actualice en Drive en vez de
+  duplicarlo.
 
 ### Fase 3 — Órdenes (la cola)
 Todo lo de [`docs/ORDENES.md`](docs/ORDENES.md): `+ Orden`, platos con sus
@@ -736,9 +806,16 @@ Mi unidad/
 agrupa), porque así "cuánto vendí de cada taco" se saca también directo en
 Excel/Sheets, sin depender de la app.
 
-**Conflictos entre dispositivos:** casi no existen. Tickets, compras y gastos
-solo se agregan, cada uno con ID único (dispositivo + momento) — se juntan sin
-pelearse. Lo único compartido de verdad es el catálogo de productos, y ahí
+**Conflictos entre dispositivos:** casi no existen. Compras y gastos solo se
+agregan, cada uno con ID único (dispositivo + momento) — se juntan sin
+pelearse.
+
+⚠️ **Los tickets dejaron de ser "solo agregar" el 2026-08-05**, cuando se
+agregó poder corregirlos (sección 8.1). Ahora un ticket puede cambiar
+después de creado, así que lleva **`modificado`** y al sincronizar **se
+sobrescribe su renglón por ID** en vez de agregarse otro — gana el
+`modificado` más reciente. Sin esto, corregir un ticket duplicaría la venta,
+que es justo lo que Miguel pidió evitar. Lo único compartido de verdad es el catálogo de productos, y ahí
 gana el último cambio, con número de versión (mismo truco que `leerVersion()`
 en MIS APPS: preguntar barato si algo cambió antes de bajarlo todo).
 
@@ -836,6 +913,12 @@ escrito sin mandar) — mismo patrón ya probado en MIS APPS.
   queda la Fase 0.
 - **Si maneja fiados** y si vende cerveza (cambia si conviene separar bebidas
   con permiso aparte).
+- **¿Corregir un ticket queda bajo el modo dueño?** (sección 8.1). A favor:
+  bajarle el total a una venta ya cobrada es la forma más simple de robar en
+  efectivo. En contra: si el dueño no está, un error honesto se queda sin
+  arreglar hasta que llegue. Alternativa intermedia: que cualquiera pueda
+  corregir pero siempre quede el rastro visible, que es lo que ya se va a
+  guardar de todos modos.
 - ~~**Quiénes son los usuarios y qué ve cada quien.**~~ ✅ **RESUELTO el
   2026-08-03:** los empleados NO ven el dinero del negocio. En vez del
   interruptor por usuario que se iba a construir, hay una contraseña — el
