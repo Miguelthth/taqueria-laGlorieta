@@ -969,7 +969,7 @@ const variacionPorcentaje = reportes.variacionPorcentaje;
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T09:13:35Z';
+const VERSION_DEPLOY = '2026-08-06T09:28:38Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -1041,6 +1041,7 @@ function irA(vistaId) {
   document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
   $(vistaId).classList.add('activa');
   if (vistaId === 'vista-ajustes') renderAjustes();
+  if (vistaId === 'vista-tickets') renderTicketsHoy();
   if (vistaId === 'vista-compras') renderVistaCompras();
   if (vistaId === 'vista-dashboard') renderDashboard();
 }
@@ -1316,7 +1317,6 @@ function renderAjustes() {
   renderPreciosPendientes();
   renderListaProductos();
   renderVelocidad();
-  renderTicketsHoy();
   $('chk-modo-practica').checked = modoPractica;
   renderConexion();
 }
@@ -1892,7 +1892,7 @@ setInterval(() => {
 // eventos fijos (una sola vez)
 // ============================================================
 
-$('btn-ir-ajustes').addEventListener('click', () => irA('vista-ajustes'));
+$('btn-ir-ajustes').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-ajustes'); });
 $('btn-ordenes').addEventListener('click', abrirOrdenes);
 $('btn-cerrar-ordenes').addEventListener('click', () => ocultar($('modal-ordenes')));
 $('btn-cerrar-orden-detalle').addEventListener('click', () => ocultar($('modal-orden-detalle')));
@@ -2081,8 +2081,10 @@ $('btn-reiniciar-medicion').addEventListener('click', () => {
   }
 });
 
+$('btn-tickets').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-tickets'); });
 $('btn-compras').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-compras'); });
 $('btn-dashboard').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-dashboard'); });
+$('btn-volver-tickets').addEventListener('click', () => irA('vista-cobrar'));
 $('btn-volver-compras').addEventListener('click', () => irA('vista-cobrar'));
 $('btn-volver-dashboard').addEventListener('click', () => irA('vista-cobrar'));
 
@@ -2143,21 +2145,54 @@ $('btn-borrar-categoria').addEventListener('click', () => {
   renderCategoriasMovimiento();
 });
 
+// Antes esto llamaba a Apps Script "estado" DOS veces por cada intento (una
+// al abrir, otra al confirmar) y el modal ni se mostraba hasta que la
+// primera terminaba -- con Apps Script (que a veces tarda varios segundos en
+// "despertar"), eso se sentía como que no hacía nada. Ahora el modal se ve
+// al instante y solo se pregunta "estado" una vez; el resultado se guarda
+// aquí y el botón de confirmar lo reusa en vez de volver a preguntar.
+let pinRequiereConfig = false;
+
 async function abrirModalPinDueno() {
-  const estado = await llamarApi({ accion: 'estado' });
-  const crear = Boolean(estado.requiereConfiguracion);
-  $('titulo-pin-dueno').textContent = crear ? 'Crear PIN del dueño' : 'Modo dueño';
-  $('texto-pin-dueno').textContent = crear ? 'Este PIN protegerá precios, productos, compras, gastos y resultados.' : 'Escribe el PIN del dueño para continuar.';
-  $('btn-confirmar-pin-dueno').textContent = crear ? 'Crear PIN' : 'Entrar';
-  $('pin-dueno').value = ''; ocultar($('error-pin-dueno')); mostrar($('modal-pin-dueno'));
-  setTimeout(() => $('pin-dueno').focus(), 50);
+  $('pin-dueno').value = '';
+  ocultar($('error-pin-dueno'));
+  $('titulo-pin-dueno').textContent = 'Modo dueño';
+  $('texto-pin-dueno').textContent = 'Comprobando…';
+  $('pin-dueno').disabled = true;
+  $('btn-confirmar-pin-dueno').disabled = true;
+  mostrar($('modal-pin-dueno'));
+  try {
+    const estado = await llamarApi({ accion: 'estado' });
+    pinRequiereConfig = Boolean(estado.requiereConfiguracion);
+  } catch (e) {
+    pinRequiereConfig = false;
+  } finally {
+    $('titulo-pin-dueno').textContent = pinRequiereConfig ? 'Crear PIN del dueño' : 'Modo dueño';
+    $('texto-pin-dueno').textContent = pinRequiereConfig ? 'Este PIN protegerá precios, productos, compras, gastos y resultados.' : 'Escribe el PIN del dueño para continuar.';
+    $('btn-confirmar-pin-dueno').textContent = pinRequiereConfig ? 'Crear PIN' : 'Entrar';
+    $('pin-dueno').disabled = false;
+    $('btn-confirmar-pin-dueno').disabled = false;
+    $('pin-dueno').focus();
+  }
 }
+$('btn-cerrar-pin-dueno').addEventListener('click', () => ocultar($('modal-pin-dueno')));
 $('btn-confirmar-pin-dueno').addEventListener('click', async () => {
-  const estado = await llamarApi({ accion: 'estado' });
-  const respuesta = await llamarApi({ accion: estado.requiereConfiguracion ? 'configurarPinDueno' : 'verificarPinDueno', pin: $('pin-dueno').value });
-  if (!respuesta.ok) { $('error-pin-dueno').textContent = 'PIN incorrecto.'; mostrar($('error-pin-dueno')); return; }
-  sesionDueno = crearSesion({ nombre: dispositivo()?.nombre || 'dueño', esDueno: true });
-  ocultar($('modal-pin-dueno')); renderAjustes();
+  const boton = $('btn-confirmar-pin-dueno');
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = 'Verificando…';
+  try {
+    const respuesta = await llamarApi({ accion: pinRequiereConfig ? 'configurarPinDueno' : 'verificarPinDueno', pin: $('pin-dueno').value });
+    if (!respuesta.ok) { $('error-pin-dueno').textContent = 'PIN incorrecto.'; mostrar($('error-pin-dueno')); return; }
+    sesionDueno = crearSesion({ nombre: dispositivo()?.nombre || 'dueño', esDueno: true });
+    ocultar($('modal-pin-dueno')); renderAjustes();
+  } catch (e) {
+    $('error-pin-dueno').textContent = e.message || 'No se pudo verificar. Revisa tu conexión.';
+    mostrar($('error-pin-dueno'));
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
 });
 $('btn-sincronizar').addEventListener('click', sincronizarAhora);
 $('btn-registrar-operador').addEventListener('click', entrar);

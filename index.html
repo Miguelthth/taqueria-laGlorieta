@@ -32,6 +32,7 @@
 
     <div class="fila-ticket" id="fila-ticket">
       <div class="ticket-lineas" id="ticket-lineas"></div>
+      <button id="btn-tickets" class="btn-admin" title="Tickets de hoy">🎫</button>
       <button id="btn-compras" class="btn-admin" title="Compras y gastos">🧾</button>
       <button id="btn-dashboard" class="btn-admin" title="Dashboard">📊</button>
       <button id="btn-libre" class="btn-libre btn-libre-chico">+ $ libre</button>
@@ -225,16 +226,22 @@
     </div>
 
     <div class="tarjeta">
-      <h2>Tickets de hoy</h2>
-      <div id="lista-tickets-hoy"></div>
-    </div>
-
-    <div class="tarjeta">
       <h2>Conexión y respaldo</h2>
       <p id="version-deploy" class="texto-suave"></p>
       <p id="estado-sincronizacion" class="texto-suave">Sin configurar.</p>
       <p id="ultima-actualizacion" class="texto-suave"></p>
       <button id="btn-sincronizar" class="btn-primario">Respaldar y actualizar ahora</button>
+    </div>
+  </section>
+
+  <!-- ===== TICKETS DE HOY ===== -->
+  <section id="vista-tickets" class="vista">
+    <header class="encabezado">
+      <button id="btn-volver-tickets" class="btn-volver">← Cobrar</button>
+      <h1>Tickets de hoy</h1>
+    </header>
+    <div class="tarjeta">
+      <div id="lista-tickets-hoy"></div>
     </div>
   </section>
 
@@ -345,7 +352,13 @@
   </section>
 
   <div id="modal-pin-dueno" class="hoja-fondo oculto">
-    <div class="hoja-caja hoja-chica"><h2 id="titulo-pin-dueno">Modo dueño</h2><p id="texto-pin-dueno" class="texto-suave">Escribe el PIN del dueño para continuar.</p><input id="pin-dueno" class="input-texto-modal" type="password" inputmode="numeric" placeholder="PIN"><p id="error-pin-dueno" class="texto-error oculto"></p><button id="btn-confirmar-pin-dueno" class="btn-primario">Entrar</button></div>
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera"><h2 id="titulo-pin-dueno">Modo dueño</h2><button id="btn-cerrar-pin-dueno" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <p id="texto-pin-dueno" class="texto-suave">Escribe el PIN del dueño para continuar.</p>
+      <input id="pin-dueno" class="input-texto-modal" type="password" inputmode="numeric" placeholder="PIN">
+      <p id="error-pin-dueno" class="texto-error oculto"></p>
+      <button id="btn-confirmar-pin-dueno" class="btn-primario">Entrar</button>
+    </div>
   </div>
 
 </div>

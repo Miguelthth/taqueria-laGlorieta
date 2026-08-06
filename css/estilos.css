@@ -532,7 +532,7 @@ button { cursor: pointer; }
 
 /* ===== Ajustes — pantalla normal, con scroll ===== */
 
-#vista-ajustes.activa, #vista-compras.activa, #vista-dashboard.activa {
+#vista-ajustes.activa, #vista-tickets.activa, #vista-compras.activa, #vista-dashboard.activa {
   display: block;
   height: 100dvh;
   overflow-y: auto;
