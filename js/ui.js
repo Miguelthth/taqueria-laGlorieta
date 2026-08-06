@@ -858,7 +858,11 @@ if ('serviceWorker' in navigator) {
   // siempre se ve como "distinto" y se activa -- nadie tiene que acordarse
   // de subir un número a mano.
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => { /* sin sw, sigue funcionando online */ });
+    // La versión va en la URL del worker: GitHub puede cachear sw.js hasta
+    // diez minutos, pero una URL nueva obliga a bajar el worker del despliegue
+    // actual de inmediato. updateViaCache none evita reutilizar ese HTTP cache.
+    navigator.serviceWorker.register(`sw.js?v=${encodeURIComponent(VERSION_DEPLOY)}`, { updateViaCache: 'none' })
+      .then((r) => r.update()).catch(() => { /* sin sw, sigue funcionando online */ });
   });
   // En cuanto el service worker NUEVO toma control, recarga la página sola
   // -- nadie tiene que cerrar y volver a abrir la app a mano. Pero si hay
