@@ -669,6 +669,16 @@ button { cursor: pointer; }
 .kpi .label { font-size: 11px; color: var(--texto-suave); }
 
 /* ===== Compras/Gastos y Dashboard ===== */
+.tarjeta-ganancia { text-align: center; background: var(--naranja-tenue); border: none; }
+.ganancia-etiqueta { font-size: 13px; font-weight: 700; color: var(--naranja-oscuro); text-transform: uppercase; letter-spacing: 0.04em; }
+.ganancia-final { font-size: clamp(34px, 11vw, 52px); font-weight: 800; color: var(--naranja-oscuro); line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ganancia-final.negativo { color: #b8261a; }
+.ganancia-margen { font-size: 14px; font-weight: 700; color: var(--texto-suave); }
+.ganancia-comparacion { display: block; margin-top: 4px; font-size: 13px; font-weight: 800; }
+.ganancia-comparacion.sube { color: var(--verde-oscuro); }
+.ganancia-comparacion.baja { color: #b8261a; }
+.tarjeta-equilibrio { text-align: center; }
+.equilibrio-numero { font-size: clamp(26px, 8vw, 36px); font-weight: 800; color: var(--texto); margin: 6px 0; font-variant-numeric: tabular-nums; }
 .tabs-pildora { display: flex; gap: 8px; padding: 4px 14px 4px; }
 .tab-movimiento, .tab-periodo {
   flex: 1;
@@ -704,7 +714,7 @@ button { cursor: pointer; }
 
 .barras-horizontales { display: flex; flex-direction: column; gap: 8px; }
 .barra-fila { display: flex; align-items: center; gap: 8px; }
-.barra-etiqueta { width: 48px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--texto-suave); }
+.barra-etiqueta { width: 78px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--texto-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .barra-pista { flex: 1; background: var(--tarjeta-suave); border-radius: 999px; height: 16px; overflow: hidden; }
 .barra-relleno { background: var(--naranja); height: 100%; border-radius: 999px; min-width: 3px; }
 .barra-valor { width: 70px; flex-shrink: 0; text-align: right; font-size: 12px; font-weight: 700; }

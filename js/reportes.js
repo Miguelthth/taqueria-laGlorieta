@@ -3,7 +3,22 @@ export function resumenCaja({ tickets = [], compras = [], gastos = [] }) {
   const ventasCentavos = sumar(tickets.filter((ticket) => !ticket.cancelado && !ticket.practica));
   const comprasCentavos = sumar(compras);
   const gastosCentavos = sumar(gastos);
-  return { ventasCentavos, comprasCentavos, gastosCentavos, utilidadCentavos: ventasCentavos - comprasCentavos - gastosCentavos };
+  const utilidadCentavos = ventasCentavos - comprasCentavos - gastosCentavos;
+  const margenPorcentaje = ventasCentavos ? Math.round((utilidadCentavos / ventasCentavos) * 1000) / 10 : 0;
+  return { ventasCentavos, comprasCentavos, gastosCentavos, utilidadCentavos, margenPorcentaje };
+}
+
+// Compras y gastos por categoría -- para ver en qué se va el dinero, no solo
+// cuánto en total. Misma forma para las dos porque son la misma cuenta.
+export function porCategoria(movimientos = []) {
+  const porCat = new Map();
+  movimientos.forEach((m) => {
+    const categoria = m.categoria || 'Otro';
+    const previo = porCat.get(categoria) || { categoria, totalCentavos: 0 };
+    previo.totalCentavos += Number(m.totalCentavos || 0);
+    porCat.set(categoria, previo);
+  });
+  return [...porCat.values()].sort((a, b) => b.totalCentavos - a.totalCentavos);
 }
 
 // Las líneas de un ticket real guardan el precio como `precioUnitarioCentavos`
@@ -62,6 +77,22 @@ export function ticketPromedio(tickets = []) {
   return { cantidadTickets: lista.length, promedioCentavos: lista.length ? Math.round(totalCentavos / lista.length) : 0 };
 }
 
+const DIAS_SEMANA = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+// ¿El martes deja o solo cansa? Los 7 días siempre en el mismo orden, aunque
+// no haya ventas ese día -- así se puede comparar a simple vista.
+export function ventasPorDiaSemana(tickets = []) {
+  const porDia = new Map();
+  vigentes(tickets).forEach((t) => {
+    const dia = new Date(`${t.fecha}T00:00:00`).getDay();
+    const previo = porDia.get(dia) || { dia, etiqueta: DIAS_SEMANA[dia], cantidadTickets: 0, totalCentavos: 0 };
+    previo.cantidadTickets += 1;
+    previo.totalCentavos += Number(t.totalCentavos || 0);
+    porDia.set(dia, previo);
+  });
+  return [0, 1, 2, 3, 4, 5, 6].map((dia) => porDia.get(dia) || { dia, etiqueta: DIAS_SEMANA[dia], cantidadTickets: 0, totalCentavos: 0 });
+}
+
 // Cuánto cobró cada quien -- sale gratis porque cada ticket ya guarda quién
 // lo capturó (operador). Sirve para el turno pesado y para rastrear un error.
 export function cobradoPorUsuario(tickets = []) {
@@ -74,4 +105,35 @@ export function cobradoPorUsuario(tickets = []) {
     porUsuario.set(nombre, previo);
   });
   return [...porUsuario.values()].sort((a, b) => b.totalCentavos - a.totalCentavos);
+}
+
+// Histórico por mes (YYYY-MM) -- la tendencia de largo plazo, no solo el
+// periodo que se esté viendo en el momento.
+export function ventasPorMes(tickets = []) {
+  const porMes = new Map();
+  vigentes(tickets).forEach((t) => {
+    const mes = (t.fecha || '').slice(0, 7);
+    const previo = porMes.get(mes) || { mes, cantidadTickets: 0, totalCentavos: 0 };
+    previo.cantidadTickets += 1;
+    previo.totalCentavos += Number(t.totalCentavos || 0);
+    porMes.set(mes, previo);
+  });
+  return [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes));
+}
+
+// Punto de equilibrio diario: el promedio de tus compras+gastos de los
+// últimos N días, repartido por día -- "necesitas vender al menos $X hoy
+// para no perder" (PLAN.md Fase 6). No es una ciencia exacta (los gastos no
+// son idénticos cada día), es una vara para medirte contra, no una promesa.
+export function puntoEquilibrio(compras = [], gastos = [], dias = 30) {
+  const sumar = (lista) => lista.reduce((total, item) => total + Number(item.totalCentavos || 0), 0);
+  const totalCentavos = sumar(compras) + sumar(gastos);
+  return { diarioCentavos: dias ? Math.round(totalCentavos / dias) : 0, dias };
+}
+
+// Cuánto cambió contra el periodo anterior de igual tamaño -- "¿voy mejor o
+// peor?", no solo el número solo.
+export function variacionPorcentaje(actual, anterior) {
+  if (!anterior) return actual > 0 ? 100 : 0;
+  return Math.round(((actual - anterior) / anterior) * 1000) / 10;
 }

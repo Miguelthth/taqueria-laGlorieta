@@ -24,7 +24,7 @@ import { leerCola, encolar, confirmar } from './cola.js';
 import { VERSION_DEPLOY } from './version.js';
 import { crearOrden, avanzarOrden, esCobrable, crearPlato, separarTodo, resumenComal, alternarSin } from './ordenes.js';
 import { crearCompra, crearGasto, CATEGORIAS_COMPRA, CATEGORIAS_GASTO } from './gastos.js';
-import { resumenCaja, ventasPorProducto, ventasPorHora, ventasPorDia, ticketPromedio, cobradoPorUsuario } from './reportes.js';
+import { resumenCaja, ventasPorProducto, ventasPorHora, ventasPorDia, ventasPorDiaSemana, ticketPromedio, cobradoPorUsuario, porCategoria, ventasPorMes, puntoEquilibrio, variacionPorcentaje } from './reportes.js';
 
 // ---------- estado en memoria ----------
 let catalogoActual = obtenerCatalogo();
@@ -428,34 +428,70 @@ let periodoDashboard = 'hoy';
 function rangoFechas(periodo) {
   const hasta = hoyISO();
   if (periodo === 'hoy') return { desde: hasta, hasta };
+  if (periodo === 'historico') return { desde: '2000-01-01', hasta };
   const dias = periodo === 'semana' ? 7 : 30;
   const desde = new Date(Date.now() - (dias - 1) * 86400000).toISOString().slice(0, 10);
   return { desde, hasta };
 }
 
+// El mismo tamaño de periodo, justo antes -- para decir "vas mejor o peor",
+// no solo el número solo. No aplica a "histórico": no hay un "antes de todo".
+function rangoAnterior(periodo, desde) {
+  if (periodo === 'historico') return null;
+  const dias = periodo === 'hoy' ? 1 : periodo === 'semana' ? 7 : 30;
+  const inicioMs = new Date(`${desde}T00:00:00`).getTime();
+  return { desde: new Date(inicioMs - dias * 86400000).toISOString().slice(0, 10), hasta: new Date(inicioMs - 86400000).toISOString().slice(0, 10) };
+}
+
 async function renderDashboard() {
   const { desde, hasta } = rangoFechas(periodoDashboard);
-  const enRango = (fecha) => fecha >= desde && fecha <= hasta;
+  const enRango = (desdeR, hastaR) => (fecha) => fecha >= desdeR && fecha <= hastaR;
   const [todosTickets, todasCompras, todosGastos] = await Promise.all([listarTodos(), listarCompras(), listarGastos()]);
-  const tickets = todosTickets.filter((t) => enRango(t.fecha));
-  const compras = todasCompras.filter((c) => enRango(c.fecha));
-  const gastos = todosGastos.filter((g) => enRango(g.fecha));
+  const tickets = todosTickets.filter(enRango(desde, hasta));
+  const compras = todasCompras.filter(enRango(desde, hasta));
+  const gastos = todosGastos.filter(enRango(desde, hasta));
 
   const r = resumenCaja({ tickets, compras, gastos });
   const prom = ticketPromedio(tickets);
+
+  $('ganancia-final').textContent = formatoMoneda(r.utilidadCentavos);
+  $('ganancia-final').classList.toggle('negativo', r.utilidadCentavos < 0);
+  $('ganancia-margen').textContent = `${r.margenPorcentaje}% de margen sobre ventas`;
+
+  const anterior = rangoAnterior(periodoDashboard, desde);
+  const comparacion = $('ganancia-comparacion');
+  if (anterior) {
+    const ticketsAnt = todosTickets.filter(enRango(anterior.desde, anterior.hasta));
+    const cambio = variacionPorcentaje(r.ventasCentavos, resumenCaja({ tickets: ticketsAnt }).ventasCentavos);
+    comparacion.textContent = `${cambio >= 0 ? '▲' : '▼'} ${Math.abs(cambio)}% en ventas vs el periodo anterior`;
+    comparacion.classList.toggle('sube', cambio >= 0);
+    comparacion.classList.toggle('baja', cambio < 0);
+  } else {
+    comparacion.textContent = '';
+  }
+
+  const hace30 = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+  const equilibrio = puntoEquilibrio(todasCompras.filter(enRango(hace30, hasta)), todosGastos.filter(enRango(hace30, hasta)), 30);
+  $('equilibrio-diario').textContent = formatoMoneda(equilibrio.diarioCentavos);
+
+  renderBarras('grafica-meses', ventasPorMes(todosTickets).map((m) => ({ etiqueta: m.mes, valor: m.totalCentavos })));
+
   $('kpis-dashboard').innerHTML = [
     ['Ventas', formatoMoneda(r.ventasCentavos)], ['Compras', formatoMoneda(r.comprasCentavos)],
-    ['Gastos', formatoMoneda(r.gastosCentavos)], ['Utilidad', formatoMoneda(r.utilidadCentavos)],
-    ['Tickets', String(prom.cantidadTickets)], ['Ticket prom.', formatoMoneda(prom.promedioCentavos)],
+    ['Gastos', formatoMoneda(r.gastosCentavos)], ['Tickets', String(prom.cantidadTickets)],
+    ['Ticket prom.', formatoMoneda(prom.promedioCentavos)],
   ].map(([label, valor]) => `<div class="kpi"><div class="valor">${valor}</div><div class="label">${label}</div></div>`).join('');
 
   renderBarras('grafica-horas', ventasPorHora(tickets).map((h) => ({ etiqueta: `${String(h.hora).padStart(2, '0')}:00`, valor: h.totalCentavos })));
   renderBarras('grafica-dias', ventasPorDia(tickets).map((d) => ({ etiqueta: d.fecha.slice(5), valor: d.totalCentavos })));
+  renderBarras('grafica-dia-semana', ventasPorDiaSemana(tickets).map((d) => ({ etiqueta: d.etiqueta, valor: d.totalCentavos })));
 
   const vendidos = ventasPorProducto(tickets);
-  $('lista-mas-vendido').innerHTML = vendidos.length
-    ? vendidos.slice(0, 8).map((p) => `<p>${escapeHtml(p.nombre)}: <strong>${p.cantidad}</strong> · ${formatoMoneda(p.totalCentavos)}</p>`).join('')
-    : '<p class="texto-suave">Sin ventas en este periodo.</p>';
+  renderBarras('grafica-producto-piezas', vendidos.map((p) => ({ etiqueta: p.nombre, valor: p.cantidad })), (n) => String(n));
+  renderBarras('grafica-producto-dinero', vendidos.map((p) => ({ etiqueta: p.nombre, valor: p.totalCentavos })));
+
+  renderBarras('grafica-compras-categoria', porCategoria(compras).map((c) => ({ etiqueta: c.categoria, valor: c.totalCentavos })));
+  renderBarras('grafica-gastos-categoria', porCategoria(gastos).map((g) => ({ etiqueta: g.categoria, valor: g.totalCentavos })));
 
   const porUsuario = cobradoPorUsuario(tickets);
   $('lista-por-usuario').innerHTML = porUsuario.length
@@ -463,15 +499,15 @@ async function renderDashboard() {
     : '<p class="texto-suave">Sin datos todavía.</p>';
 }
 
-function renderBarras(contId, filas) {
+function renderBarras(contId, filas, formatear = formatoMoneda) {
   const cont = $(contId);
   if (!filas.length) { cont.innerHTML = '<p class="texto-suave">Sin datos todavía.</p>'; return; }
   const max = Math.max(...filas.map((f) => f.valor), 1);
   cont.innerHTML = filas.map((f) => `
     <div class="barra-fila">
-      <span class="barra-etiqueta">${escapeHtml(f.etiqueta)}</span>
+      <span class="barra-etiqueta">${escapeHtml(String(f.etiqueta))}</span>
       <div class="barra-pista"><div class="barra-relleno" style="width:${Math.max(3, Math.round((f.valor / max) * 100))}%"></div></div>
-      <span class="barra-valor">${formatoMoneda(f.valor)}</span>
+      <span class="barra-valor">${formatear(f.valor)}</span>
     </div>
   `).join('');
 }

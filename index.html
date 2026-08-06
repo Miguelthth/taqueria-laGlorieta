@@ -275,6 +275,19 @@
       <button type="button" class="tab-periodo activo" data-periodo="hoy">Hoy</button>
       <button type="button" class="tab-periodo" data-periodo="semana">7 días</button>
       <button type="button" class="tab-periodo" data-periodo="mes">30 días</button>
+      <button type="button" class="tab-periodo" data-periodo="historico">Histórico</button>
+    </div>
+    <div class="tarjeta tarjeta-ganancia">
+      <span class="ganancia-etiqueta">Ganancia final</span>
+      <div class="ganancia-final" id="ganancia-final">$0</div>
+      <span class="ganancia-margen" id="ganancia-margen">0% de margen</span>
+      <span class="ganancia-comparacion" id="ganancia-comparacion"></span>
+    </div>
+    <div class="tarjeta tarjeta-equilibrio">
+      <h2>Punto de equilibrio</h2>
+      <p class="texto-suave" style="margin-top:0">Promedio de tus compras y gastos de los últimos 30 días, repartido por día.</p>
+      <div class="equilibrio-numero" id="equilibrio-diario">$0</div>
+      <p class="texto-suave" style="margin-bottom:0">Eso necesitas vender hoy solo para no perder — no cuenta lo que ya llevas vendido.</p>
     </div>
     <div class="tarjeta">
       <div class="kpis" id="kpis-dashboard"></div>
@@ -288,8 +301,28 @@
       <div id="grafica-dias" class="barras-horizontales"></div>
     </div>
     <div class="tarjeta">
-      <h2>Más vendido</h2>
-      <div id="lista-mas-vendido"></div>
+      <h2>Por día de la semana</h2>
+      <div id="grafica-dia-semana" class="barras-horizontales"></div>
+    </div>
+    <div class="tarjeta">
+      <h2>Histórico por mes</h2>
+      <div id="grafica-meses" class="barras-horizontales"></div>
+    </div>
+    <div class="tarjeta">
+      <h2>Más vendido — por piezas</h2>
+      <div id="grafica-producto-piezas" class="barras-horizontales"></div>
+    </div>
+    <div class="tarjeta">
+      <h2>Más vendido — por dinero</h2>
+      <div id="grafica-producto-dinero" class="barras-horizontales"></div>
+    </div>
+    <div class="tarjeta">
+      <h2>En qué se fue — Compras</h2>
+      <div id="grafica-compras-categoria" class="barras-horizontales"></div>
+    </div>
+    <div class="tarjeta">
+      <h2>En qué se fue — Gastos</h2>
+      <div id="grafica-gastos-categoria" class="barras-horizontales"></div>
     </div>
     <div class="tarjeta">
       <h2>Quién cobró</h2>
