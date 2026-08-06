@@ -360,7 +360,7 @@ async function entrar() {
   try {
     guardarUrlApi(url);
     const estado = await llamarApi({ accion: 'estado' });
-    if (!estado.ok) await llamarApi({ accion: 'instalar', nombreDueno: nombre, pinDueno: pin });
+    if (!estado.ok || estado.requiereDueno) await llamarApi({ accion: 'instalar', nombreDueno: nombre, pinDueno: pin });
     const respuesta = await llamarApi({ accion: 'iniciarSesion', nombre, pin });
     guardarSesion({ token: respuesta.token, usuario: respuesta.usuario });
     if (!dispositivo()) guardarDispositivo(nombre);

@@ -662,8 +662,9 @@ const api = (function () {
 const CLAVE_API = 'taq_api_url';
 const CLAVE_DISPOSITIVO = 'taq_dispositivo';
 const CLAVE_SESION = 'taq_sesion';
+const URL_PREDETERMINADA = 'https://script.google.com/macros/s/AKfycbwR0aIV5Kkxf4HgThFlR0K8NASMC06ZtUP5N5D4eqapObQk3QCWnzAthTrhsbqb4g_8Yw/exec';
 
-function urlApi() { return localStorage.getItem(CLAVE_API) || ''; }
+function urlApi() { return localStorage.getItem(CLAVE_API) || URL_PREDETERMINADA; }
 function guardarUrlApi(url) { localStorage.setItem(CLAVE_API, url.trim()); }
 function sesionApi() { try { return JSON.parse(localStorage.getItem(CLAVE_SESION)); } catch { return null; } }
 function guardarSesion(datos) { localStorage.setItem(CLAVE_SESION, JSON.stringify(datos)); }
@@ -798,7 +799,7 @@ const ventasPorProducto = reportes.ventasPorProducto;
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T05:09:06Z';
+const VERSION_DEPLOY = '2026-08-06T05:27:52Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -1144,7 +1145,7 @@ async function entrar() {
   try {
     guardarUrlApi(url);
     const estado = await llamarApi({ accion: 'estado' });
-    if (!estado.ok) await llamarApi({ accion: 'instalar', nombreDueno: nombre, pinDueno: pin });
+    if (!estado.ok || estado.requiereDueno) await llamarApi({ accion: 'instalar', nombreDueno: nombre, pinDueno: pin });
     const respuesta = await llamarApi({ accion: 'iniciarSesion', nombre, pin });
     guardarSesion({ token: respuesta.token, usuario: respuesta.usuario });
     if (!dispositivo()) guardarDispositivo(nombre);
