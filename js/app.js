@@ -799,7 +799,7 @@ const ventasPorProducto = reportes.ventasPorProducto;
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T05:42:50Z';
+const VERSION_DEPLOY = '2026-08-06T06:02:12Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -826,6 +826,7 @@ let sincronizando = false;
 let ultimoErrorSync = '';
 let cobroConfirmado = false;
 let ordenCobrando = null;
+let resultadosAbiertos = false;
 
 // ---------- helpers ----------
 function $(id) { return document.getElementById(id); }
@@ -1081,8 +1082,9 @@ function renderAjustes() {
   renderTicketsHoy();
   $('chk-modo-practica').checked = modoPractica;
   renderConexion();
-  $('tarjeta-administracion').classList.toggle('oculto', !esDuenoActual());
-  if (esDuenoActual()) renderResumenCaja();
+  $('tarjeta-administracion').classList.remove('oculto');
+  $('panel-resultados').classList.toggle('oculto', !resultadosAbiertos);
+  if (resultadosAbiertos) renderResumenCaja();
 }
 
 async function renderResumenCaja() {
@@ -1102,13 +1104,12 @@ function renderConexion() {
 }
 
 async function sincronizarAhora() {
-  const acceso = sesionApi();
-  if (sincronizando || !urlApi() || !acceso) { if (!acceso) prepararAcceso(); return; }
-  let d = dispositivo(); if (!d) d = guardarDispositivo(acceso.usuario.nombre);
+  if (sincronizando || !urlApi()) return;
+  const d = dispositivo(); if (!d) { prepararAcceso(); return; }
   sincronizando = true;
   try {
-    await llamarApi({ accion: 'registrarDispositivo', token: acceso.token, dispositivo: d });
-    const respuesta = await llamarApi({ accion: 'sincronizar', token: acceso.token, dispositivo: d, desdeVersion: Number(localStorage.getItem('taq_version_datos') || 0), operaciones: leerCola() });
+    await llamarApi({ accion: 'registrarDispositivo', dispositivo: d });
+    const respuesta = await llamarApi({ accion: 'sincronizar', dispositivo: d, desdeVersion: Number(localStorage.getItem('taq_version_datos') || 0), operaciones: leerCola() });
     confirmar(respuesta.confirmadas || []);
     localStorage.setItem('taq_version_datos', String(respuesta.version || 0));
     localStorage.setItem('taq_ultima_actualizacion', String(Date.now()));
@@ -1121,7 +1122,6 @@ async function sincronizarAhora() {
     ultimoErrorSync = '';
   } catch (error) {
     ultimoErrorSync = `Sin respaldo: ${error.message || 'revisar conexión'}`;
-    if (/Sesión vencida|PIN/i.test(error.message || '')) { cerrarSesion(); prepararAcceso(); }
   }
   finally { sincronizando = false; if ($('vista-ajustes').classList.contains('activa')) renderConexion(); }
 }
@@ -1129,8 +1129,9 @@ async function sincronizarAhora() {
 async function prepararAcceso() {
   const url = urlApi();
   $('operador-url').classList.toggle('oculto', Boolean(url));
-  $('titulo-acceso').textContent = url ? 'Entrar a la taquería' : 'Conectar la taquería';
-  $('texto-acceso').textContent = url ? 'Escribe tu nombre y PIN.' : 'Pega la URL de Apps Script. Si es la primera vez, este nombre y PIN serán del dueño.';
+  $('operador-pin').classList.add('oculto');
+  $('titulo-acceso').textContent = '¿Quién está usando la app?';
+  $('texto-acceso').textContent = 'Escribe tu nombre. Quedará registrado en cada cobro y orden.';
   $('error-acceso').textContent = '';
   ocultar($('error-acceso'));
   mostrar($('modal-operador'));
@@ -1141,25 +1142,19 @@ async function entrar() {
   const nombre = $('operador-nombre').value.trim();
   const pin = $('operador-pin').value;
   const error = $('error-acceso');
-  if (!url || !nombre || !pin) { error.textContent = 'Falta la URL, el nombre o el PIN.'; mostrar(error); return; }
+  if (!url || !nombre) { error.textContent = 'Falta la URL o el nombre.'; mostrar(error); return; }
   try {
     guardarUrlApi(url);
     const estado = await llamarApi({ accion: 'estado' });
-    if (!estado.ok || estado.requiereDueno) await llamarApi({ accion: 'instalar', nombreDueno: nombre, pinDueno: pin });
-    const respuesta = await llamarApi({ accion: 'iniciarSesion', nombre, pin });
-    guardarSesion({ token: respuesta.token, usuario: respuesta.usuario });
+    if (!estado.ok) await llamarApi({ accion: 'instalar', nombreDueno: nombre });
     if (!dispositivo()) guardarDispositivo(nombre);
     ocultar($('modal-operador'));
     await sincronizarAhora();
   } catch (e) { error.textContent = e.message || 'No se pudo entrar.'; mostrar(error); }
 }
 
-function esDuenoActual() { return Boolean(sesionApi()?.usuario?.esDueno); }
-function exigirModoDueno() {
-  if (esDuenoActual()) return true;
-  window.alert('Esta parte solo se abre con el PIN del dueño.');
-  return false;
-}
+function esDuenoActual() { return resultadosAbiertos; }
+function exigirModoDueno() { return true; }
 function publicarCatalogo() {
   catalogoActual = catalogoActual.map((producto) => ({ ...producto, modificado: Date.now() }));
   guardarCatalogo(catalogoActual);
@@ -1606,6 +1601,20 @@ $('btn-guardar-gasto').addEventListener('click', async () => {
   const gasto = crearGasto({ id: crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario: sesionApi().usuario.nombre });
   await guardarGasto(gasto); encolar('gasto', gasto); $('gasto-concepto').value = ''; $('gasto-total').value = ''; sincronizarAhora(); renderResumenCaja();
 });
+$('btn-ver-resultados').addEventListener('click', async () => {
+  const estado = await llamarApi({ accion: 'estado' });
+  const crear = Boolean(estado.requiereConfiguracion);
+  $('titulo-pin-dueno').textContent = crear ? 'Crear PIN del dueño' : 'Resultados del dueño';
+  $('texto-pin-dueno').textContent = crear ? 'Este PIN solo servirá para abrir resultados, ganancias y dashboards.' : 'Escribe el PIN del dueño para ver ganancias y datos.';
+  $('btn-confirmar-pin-dueno').textContent = crear ? 'Crear PIN y ver resultados' : 'Ver resultados';
+  $('pin-dueno').value = ''; ocultar($('error-pin-dueno')); mostrar($('modal-pin-dueno'));
+});
+$('btn-confirmar-pin-dueno').addEventListener('click', async () => {
+  const estado = await llamarApi({ accion: 'estado' });
+  const respuesta = await llamarApi({ accion: estado.requiereConfiguracion ? 'configurarPinDueno' : 'verificarPinDueno', pin: $('pin-dueno').value });
+  if (!respuesta.ok) { $('error-pin-dueno').textContent = 'PIN incorrecto.'; mostrar($('error-pin-dueno')); return; }
+  resultadosAbiertos = true; ocultar($('modal-pin-dueno')); renderAjustes();
+});
 $('btn-sincronizar').addEventListener('click', sincronizarAhora);
 $('btn-registrar-operador').addEventListener('click', entrar);
 
@@ -1631,7 +1640,7 @@ function abrirHojaMas() {
 pedirWakeLock();
 renderBannerPractica();
 renderCobrar();
-if (!sesionApi()) prepararAcceso(); else sincronizarAhora();
+if (!dispositivo()) prepararAcceso(); else sincronizarAhora();
 window.addEventListener('online', sincronizarAhora);
 setInterval(sincronizarAhora, 10000);
 

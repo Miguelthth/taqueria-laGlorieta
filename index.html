@@ -217,9 +217,12 @@
       <div class="campo"><label>Total del gasto</label><input id="gasto-total" type="number" inputmode="decimal" placeholder="0"></div>
       <button id="btn-guardar-gasto" class="btn-secundario">Registrar gasto</button>
       <hr>
-      <h2>Resumen de hoy</h2>
-      <div class="kpis" id="kpis-caja"></div>
-      <div id="lista-productos-vendidos"></div>
+      <button id="btn-ver-resultados" class="btn-primario">Ver resultados del dueño</button>
+      <div id="panel-resultados" class="oculto">
+        <h2>Resumen de hoy</h2>
+        <div class="kpis" id="kpis-caja"></div>
+        <div id="lista-productos-vendidos"></div>
+      </div>
     </div>
 
     <div class="tarjeta">
@@ -230,6 +233,10 @@
       <button id="btn-sincronizar" class="btn-primario">Respaldar y actualizar ahora</button>
     </div>
   </section>
+
+  <div id="modal-pin-dueno" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica"><h2 id="titulo-pin-dueno">Resultados del dueño</h2><p id="texto-pin-dueno" class="texto-suave">Escribe el PIN del dueño para ver ganancias y datos.</p><input id="pin-dueno" class="input-texto-modal" type="password" inputmode="numeric" placeholder="PIN"><p id="error-pin-dueno" class="texto-error oculto"></p><button id="btn-confirmar-pin-dueno" class="btn-primario">Ver resultados</button></div>
+  </div>
 
 </div>
 
