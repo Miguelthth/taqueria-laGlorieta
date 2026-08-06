@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Taquería</title>
+<meta name="theme-color" content="#e8562f">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Taquería">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== COBRAR (única pantalla del flujo real, sin scroll) ===== -->
+  <section id="vista-cobrar" class="vista activa">
+
+    <div id="banner-practica" class="banner-practica oculto">🧪 MODO PRÁCTICA — no cuenta para tus reportes</div>
+
+    <header class="cabecera-cobrar">
+      <div class="total-grande" id="total-grande">$0</div>
+      <button id="btn-ir-ajustes" class="btn-ajustes" title="Ajustes" aria-label="Ajustes">⚙️</button>
+    </header>
+
+    <div class="zona-paga-con oculto" id="zona-paga-con">
+      <input type="number" inputmode="decimal" id="paga-con" class="input-paga-con" placeholder="Paga con…">
+      <div class="cambio-mostrado" id="cambio-mostrado"></div>
+    </div>
+
+    <div class="fila-ticket" id="fila-ticket">
+      <div class="ticket-lineas" id="ticket-lineas"></div>
+      <button id="btn-libre" class="btn-libre">+ $ libre</button>
+    </div>
+
+    <div class="cuadricula" id="cuadricula"></div>
+
+    <!-- Bloquea cobrar hasta que los precios de relleno estén confirmados -->
+    <div id="overlay-precios" class="overlay-precios oculto">
+      <p>Antes de cobrar, confirma tus precios — hoy tienen números de ejemplo.</p>
+      <button id="btn-ir-precios" class="btn-primario">Configurar precios ahora</button>
+    </div>
+
+    <div class="fila-pago" id="fila-pago"></div>
+
+    <div id="barra-deshacer" class="barra-deshacer oculto">
+      <span id="deshacer-texto">Ticket guardado</span>
+      <button id="btn-deshacer">↺ DESHACER</button>
+    </div>
+    <div id="aviso-carrito" class="aviso-carrito oculto">⚠️ Hay un ticket en curso sin cobrar.</div>
+  </section>
+
+  <!-- ===== MÁS PRODUCTOS (hoja) ===== -->
+  <div id="hoja-mas" class="hoja-fondo oculto">
+    <div class="hoja-caja">
+      <div class="hoja-cabecera">
+        <h2>Más productos</h2>
+        <button id="btn-cerrar-mas" class="btn-cerrar">✕</button>
+      </div>
+      <div id="lista-mas" class="lista-mas"></div>
+    </div>
+  </div>
+
+  <!-- ===== CANTIDAD (para pedidos grandes: "10 de asada") ===== -->
+  <div id="modal-cantidad" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera">
+        <h2 id="cantidad-nombre">Producto</h2>
+        <button id="btn-cerrar-cantidad" class="btn-cerrar">✕</button>
+      </div>
+      <div class="cantidad-controles">
+        <button id="cantidad-menos" class="btn-cantidad">−</button>
+        <input type="number" inputmode="numeric" id="cantidad-input" class="cantidad-input" value="1" min="0">
+        <button id="cantidad-mas" class="btn-cantidad">+</button>
+      </div>
+      <button id="btn-cantidad-quitar" class="btn-secundario">Quitar del ticket</button>
+      <button id="btn-cantidad-listo" class="btn-primario">Listo</button>
+    </div>
+  </div>
+
+  <!-- ===== $ LIBRE ===== -->
+  <div id="modal-libre" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera">
+        <h2>$ libre</h2>
+        <button id="btn-cerrar-libre" class="btn-cerrar">✕</button>
+      </div>
+      <label class="campo-label">¿Cuánto?</label>
+      <input type="number" inputmode="decimal" id="libre-monto" class="input-grande-modal" placeholder="0" autofocus>
+      <label class="campo-label">Nota (opcional)</label>
+      <input type="text" id="libre-nota" class="input-texto-modal" placeholder="Orden especial">
+      <button id="btn-libre-agregar" class="btn-primario">Agregar al ticket</button>
+    </div>
+  </div>
+
+  <!-- ===== COBRO ===== -->
+  <div id="modal-cobro" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera"><h2>Cobrar <span id="cobro-total"></span></h2><button id="btn-cerrar-cobro" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <label class="campo-label">¿Con cuánto paga?</label>
+      <input type="number" inputmode="decimal" id="cobro-recibido" class="input-grande-modal" placeholder="Exacto">
+      <div id="cobro-cambio" class="cambio-grande">Cambio: $0</div>
+      <button id="btn-confirmar-cobro" class="btn-primario">Confirmar cobro</button>
+    </div>
+  </div>
+
+  <!-- ===== EDITAR PRODUCTO ===== -->
+  <div id="modal-producto" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera"><h2>Editar producto</h2><button id="btn-cerrar-producto" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <div class="campo"><label>Nombre</label><input id="editar-nombre" type="text"></div>
+      <div class="campo"><label>Precio</label><input id="editar-precio" type="number" inputmode="decimal"></div>
+      <div class="campo"><label>Categoría</label><input id="editar-categoria" type="text"></div>
+      <label class="campo-check"><input id="editar-cuadricula" type="checkbox"> Mostrar en la cuadrícula</label>
+      <button id="btn-guardar-producto" class="btn-primario">Guardar cambios</button>
+    </div>
+  </div>
+
+  <div id="modal-ticket" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera"><h2>Corregir ticket</h2><button id="btn-cerrar-ticket" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <p id="ticket-resumen" class="texto-suave"></p>
+      <div id="ticket-lineas-editar" class="lineas-editar"></div>
+      <label class="campo-label">Nuevo total</label><input id="ticket-total" class="input-grande-modal" type="number" inputmode="decimal">
+      <label class="campo-label">Motivo</label><input id="ticket-motivo" class="input-texto-modal" type="text" placeholder="Ej. se cobró uno de más">
+      <button id="btn-guardar-ticket" class="btn-primario">Guardar corrección</button>
+      <button id="btn-cancelar-ticket" class="btn-secundario btn-peligro">Cancelar ticket</button>
+    </div>
+  </div>
+
+  <!-- ===== AJUSTES ===== -->
+  <section id="vista-ajustes" class="vista">
+    <header class="encabezado">
+      <button id="btn-volver-cobrar" class="btn-volver">← Cobrar</button>
+      <h1>Ajustes</h1>
+    </header>
+
+    <div class="tarjeta oculto" id="tarjeta-precios-pendientes">
+      <h2>⚠️ Confirma tus precios</h2>
+      <p class="texto-suave" style="margin-top:0;">Estos traen un número de ejemplo — corrígelos antes de cobrar.</p>
+      <div id="lista-precios-pendientes"></div>
+      <button id="btn-guardar-precios" class="btn-primario">Guardar precios</button>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Tus productos</h2>
+      <p class="texto-suave" style="margin-top:0;">Marca los que quieres en la cuadrícula, arrastra <span class="manija">⠿</span> para el orden — no cambia solo.</p>
+      <p class="texto-suave" id="productos-contador" style="margin-top:0; font-weight:700;"></p>
+      <div id="lista-productos"></div>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Agregar producto</h2>
+      <div class="campo"><label>Nombre</label><input type="text" id="nuevo-nombre"></div>
+      <div class="campo"><label>Categoría</label><input type="text" id="nuevo-categoria" placeholder="Tacos, Bebidas…"></div>
+      <div class="campo"><label>Precio</label><input type="number" inputmode="decimal" id="nuevo-precio"></div>
+      <label class="campo-check"><input type="checkbox" id="nuevo-en-cuadricula" checked> Ponerlo en la cuadrícula si hay lugar</label>
+      <button id="btn-agregar-producto" class="btn-secundario">Agregar</button>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Qué tan rápido cobras</h2>
+      <div class="kpis" id="kpis-velocidad"></div>
+      <label class="campo-check"><input type="checkbox" id="chk-modo-practica"> Modo práctica (no cuenta en tus reportes)</label>
+      <button id="btn-reiniciar-medicion" class="btn-secundario">Reiniciar medición</button>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Tickets de hoy</h2>
+      <div id="lista-tickets-hoy"></div>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Conexión y respaldo</h2>
+      <p id="version-deploy" class="texto-suave"></p>
+      <p id="estado-sincronizacion" class="texto-suave">Sin configurar.</p>
+      <p id="ultima-actualizacion" class="texto-suave"></p>
+      <div class="campo"><label>URL del backend de Google</label><input type="url" id="api-url" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <div class="campo"><label>Nombre de este dispositivo</label><input type="text" id="dispositivo-nombre" placeholder="Caja, cocina, celular Miguel…"></div>
+      <div class="campo"><label>PIN inicial del dueño (solo primera instalación)</label><input type="password" inputmode="numeric" id="pin-inicial-dueno" placeholder="Mínimo 4 dígitos"></div>
+      <button id="btn-guardar-conexion" class="btn-secundario">Guardar conexión</button>
+      <button id="btn-instalar-backend" class="btn-secundario">Crear datos en Drive y guardar PIN</button>
+      <button id="btn-sincronizar" class="btn-primario">Respaldar y actualizar ahora</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- js/app.js es generado (python build.py) -- un <script> normal, sin type="module" -->
+<script src="js/app.js"></script>
+</body>
+</html>
