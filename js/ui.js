@@ -15,16 +15,16 @@ import {
 import { aCentavos, aPesos, formatoMoneda } from './dinero.js';
 import { calcularCambio } from './cambio.js';
 import { hoyISO, horaISO, crearId } from './modelo.js';
-import { guardarTicket, borrarTicket, listarTicketsPorFecha, guardarOrden, listarOrdenesActivas, guardarCompra, guardarGasto, listarCompras, listarGastos } from './almacen.js';
+import { guardarTicket, borrarTicket, listarTicketsPorFecha, listarTodos, guardarOrden, listarOrdenesActivas, guardarCompra, guardarGasto, listarCompras, listarGastos } from './almacen.js';
 import { ahora, registrarDuracion, estadisticas, reiniciarMedicion } from './cronometro.js';
 import { cargarCarritoEnCurso, guardarCarritoEnCurso, borrarCarritoEnCurso, cargarModoPractica, guardarModoPractica, carritoOlvidado, corregirTicket, cancelarTicket } from './sesion.js';
 import { crearSesion, sesionVigente } from './acceso.js';
-import { urlApi, guardarUrlApi, dispositivo, guardarDispositivo, llamarApi, sesionApi, guardarSesion, cerrarSesion } from './api.js';
+import { urlApi, guardarUrlApi, dispositivo, guardarDispositivo, llamarApi, guardarSesion, cerrarSesion } from './api.js';
 import { leerCola, encolar, confirmar } from './cola.js';
 import { VERSION_DEPLOY } from './version.js';
 import { crearOrden, avanzarOrden, esCobrable, crearPlato, separarTodo, resumenComal, alternarSin } from './ordenes.js';
-import { crearCompra, crearGasto } from './gastos.js';
-import { resumenCaja, ventasPorProducto } from './reportes.js';
+import { crearCompra, crearGasto, CATEGORIAS_COMPRA, CATEGORIAS_GASTO } from './gastos.js';
+import { resumenCaja, ventasPorProducto, ventasPorHora, ventasPorDia, ticketPromedio, cobradoPorUsuario } from './reportes.js';
 
 // ---------- estado en memoria ----------
 let catalogoActual = obtenerCatalogo();
@@ -87,6 +87,8 @@ function irA(vistaId) {
   document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
   $(vistaId).classList.add('activa');
   if (vistaId === 'vista-ajustes') renderAjustes();
+  if (vistaId === 'vista-compras') renderVistaCompras();
+  if (vistaId === 'vista-dashboard') renderDashboard();
 }
 
 // ============================================================
@@ -363,17 +365,115 @@ function renderAjustes() {
   renderTicketsHoy();
   $('chk-modo-practica').checked = modoPractica;
   renderConexion();
-  $('tarjeta-administracion').classList.remove('oculto');
-  $('panel-resultados').classList.toggle('oculto', !duenoAutorizado());
-  if (duenoAutorizado()) renderResumenCaja();
 }
 
-async function renderResumenCaja() {
-  const [tickets, compras, gastos] = await Promise.all([listarTicketsPorFecha(hoyISO()), listarCompras(hoyISO()), listarGastos(hoyISO())]);
+// ============================================================
+// COMPRAS Y GASTOS (categorías, bajo modo dueño)
+// ============================================================
+
+let tabMovimientos = 'compra';
+let movimientoActual = null; // { tipo: 'compra'|'gasto', id: existente o null, categoria }
+
+function renderVistaCompras() {
+  renderCategoriasMovimiento();
+  renderListaMovimientos();
+}
+
+function renderCategoriasMovimiento() {
+  const categorias = tabMovimientos === 'compra' ? CATEGORIAS_COMPRA : CATEGORIAS_GASTO;
+  const cont = $('cuadricula-categorias');
+  cont.innerHTML = '';
+  for (const categoria of categorias) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-categoria';
+    btn.textContent = categoria;
+    btn.addEventListener('click', () => abrirModalMovimiento({ tipo: tabMovimientos, categoria }));
+    cont.appendChild(btn);
+  }
+}
+
+async function renderListaMovimientos() {
+  const lista = tabMovimientos === 'compra' ? await listarCompras() : await listarGastos();
+  $('titulo-lista-movs').textContent = tabMovimientos === 'compra' ? 'Compras registradas' : 'Gastos registrados';
+  const cont = $('lista-movimientos');
+  cont.innerHTML = '';
+  if (!lista.length) { cont.innerHTML = '<p class="texto-suave">Todavía no hay nada aquí.</p>'; return; }
+  for (const mov of lista.slice(0, 60)) {
+    const fila = document.createElement('button');
+    fila.type = 'button';
+    fila.className = 'fila-item fila-mov';
+    const detalle = mov.concepto ? ` · ${escapeHtml(mov.concepto)}` : '';
+    fila.innerHTML = `<span class="item-nombre">${escapeHtml(mov.categoria)}${detalle} <span class="texto-suave">${mov.fecha}</span></span><span class="item-precio">${formatoMoneda(mov.totalCentavos)}</span>`;
+    fila.addEventListener('click', () => abrirModalMovimiento({ tipo: tabMovimientos, id: mov.id, categoria: mov.categoria, concepto: mov.concepto, totalCentavos: mov.totalCentavos }));
+    cont.appendChild(fila);
+  }
+}
+
+function abrirModalMovimiento({ tipo, id = null, categoria, concepto = '', totalCentavos = 0 }) {
+  movimientoActual = { tipo, id, categoria };
+  $('movimiento-titulo').textContent = categoria;
+  $('movimiento-total').value = totalCentavos ? aPesos(totalCentavos) : '';
+  $('movimiento-concepto').value = concepto || '';
+  mostrar($('modal-movimiento'));
+  setTimeout(() => $('movimiento-total').focus(), 50);
+}
+
+// ============================================================
+// DASHBOARD (bajo modo dueño)
+// ============================================================
+
+let periodoDashboard = 'hoy';
+
+function rangoFechas(periodo) {
+  const hasta = hoyISO();
+  if (periodo === 'hoy') return { desde: hasta, hasta };
+  const dias = periodo === 'semana' ? 7 : 30;
+  const desde = new Date(Date.now() - (dias - 1) * 86400000).toISOString().slice(0, 10);
+  return { desde, hasta };
+}
+
+async function renderDashboard() {
+  const { desde, hasta } = rangoFechas(periodoDashboard);
+  const enRango = (fecha) => fecha >= desde && fecha <= hasta;
+  const [todosTickets, todasCompras, todosGastos] = await Promise.all([listarTodos(), listarCompras(), listarGastos()]);
+  const tickets = todosTickets.filter((t) => enRango(t.fecha));
+  const compras = todasCompras.filter((c) => enRango(c.fecha));
+  const gastos = todosGastos.filter((g) => enRango(g.fecha));
+
   const r = resumenCaja({ tickets, compras, gastos });
-  $('kpis-caja').innerHTML = `<div class="kpi"><span>Ventas</span><strong>${formatoMoneda(r.ventasCentavos)}</strong></div><div class="kpi"><span>Compras</span><strong>${formatoMoneda(r.comprasCentavos)}</strong></div><div class="kpi"><span>Gastos</span><strong>${formatoMoneda(r.gastosCentavos)}</strong></div><div class="kpi"><span>Utilidad</span><strong>${formatoMoneda(r.utilidadCentavos)}</strong></div>`;
+  const prom = ticketPromedio(tickets);
+  $('kpis-dashboard').innerHTML = [
+    ['Ventas', formatoMoneda(r.ventasCentavos)], ['Compras', formatoMoneda(r.comprasCentavos)],
+    ['Gastos', formatoMoneda(r.gastosCentavos)], ['Utilidad', formatoMoneda(r.utilidadCentavos)],
+    ['Tickets', String(prom.cantidadTickets)], ['Ticket prom.', formatoMoneda(prom.promedioCentavos)],
+  ].map(([label, valor]) => `<div class="kpi"><div class="valor">${valor}</div><div class="label">${label}</div></div>`).join('');
+
+  renderBarras('grafica-horas', ventasPorHora(tickets).map((h) => ({ etiqueta: `${String(h.hora).padStart(2, '0')}:00`, valor: h.totalCentavos })));
+  renderBarras('grafica-dias', ventasPorDia(tickets).map((d) => ({ etiqueta: d.fecha.slice(5), valor: d.totalCentavos })));
+
   const vendidos = ventasPorProducto(tickets);
-  $('lista-productos-vendidos').innerHTML = vendidos.length ? `<h3>Más vendido hoy</h3>${vendidos.map((p) => `<p>${escapeHtml(p.nombre)}: <strong>${p.cantidad}</strong> · ${formatoMoneda(p.totalCentavos)}</p>`).join('')}` : '<p class="texto-suave">Aún no hay ventas hoy.</p>';
+  $('lista-mas-vendido').innerHTML = vendidos.length
+    ? vendidos.slice(0, 8).map((p) => `<p>${escapeHtml(p.nombre)}: <strong>${p.cantidad}</strong> · ${formatoMoneda(p.totalCentavos)}</p>`).join('')
+    : '<p class="texto-suave">Sin ventas en este periodo.</p>';
+
+  const porUsuario = cobradoPorUsuario(tickets);
+  $('lista-por-usuario').innerHTML = porUsuario.length
+    ? porUsuario.map((u) => `<p>${escapeHtml(u.nombre)}: <strong>${u.cantidadTickets}</strong> tickets · ${formatoMoneda(u.totalCentavos)}</p>`).join('')
+    : '<p class="texto-suave">Sin datos todavía.</p>';
+}
+
+function renderBarras(contId, filas) {
+  const cont = $(contId);
+  if (!filas.length) { cont.innerHTML = '<p class="texto-suave">Sin datos todavía.</p>'; return; }
+  const max = Math.max(...filas.map((f) => f.valor), 1);
+  cont.innerHTML = filas.map((f) => `
+    <div class="barra-fila">
+      <span class="barra-etiqueta">${escapeHtml(f.etiqueta)}</span>
+      <div class="barra-pista"><div class="barra-relleno" style="width:${Math.max(3, Math.round((f.valor / max) * 100))}%"></div></div>
+      <span class="barra-valor">${formatoMoneda(f.valor)}</span>
+    </div>
+  `).join('');
 }
 
 function renderConexion() {
@@ -943,23 +1043,46 @@ $('btn-reiniciar-medicion').addEventListener('click', () => {
   }
 });
 
-$('btn-guardar-compra').addEventListener('click', async () => {
-  if (!exigirModoDueno()) return;
-  const totalCentavos = aCentavos(Number($('compra-total').value));
-  const categoria = $('compra-categoria').value.trim();
-  if (!categoria || !totalCentavos) return;
-  const compra = crearCompra({ id: crearId('comp'), fecha: hoyISO(), categoria, totalCentavos, usuario: sesionApi().usuario.nombre });
-  await guardarCompra(compra); encolar('compra', compra); $('compra-categoria').value = ''; $('compra-total').value = ''; sincronizarAhora(); renderResumenCaja();
+$('btn-compras').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-compras'); });
+$('btn-dashboard').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-dashboard'); });
+$('btn-volver-compras').addEventListener('click', () => irA('vista-cobrar'));
+$('btn-volver-dashboard').addEventListener('click', () => irA('vista-cobrar'));
+
+document.querySelectorAll('.tab-movimiento').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    tabMovimientos = btn.dataset.tab;
+    document.querySelectorAll('.tab-movimiento').forEach((b) => b.classList.toggle('activo', b === btn));
+    renderVistaCompras();
+  });
 });
-$('btn-guardar-gasto').addEventListener('click', async () => {
-  if (!exigirModoDueno()) return;
-  const totalCentavos = aCentavos(Number($('gasto-total').value));
-  const categoria = $('gasto-categoria').value;
-  const concepto = $('gasto-concepto').value.trim();
-  if (!concepto || !totalCentavos) return;
-  const gasto = crearGasto({ id: crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario: sesionApi().usuario.nombre });
-  await guardarGasto(gasto); encolar('gasto', gasto); $('gasto-concepto').value = ''; $('gasto-total').value = ''; sincronizarAhora(); renderResumenCaja();
+document.querySelectorAll('.tab-periodo').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    periodoDashboard = btn.dataset.periodo;
+    document.querySelectorAll('.tab-periodo').forEach((b) => b.classList.toggle('activo', b === btn));
+    renderDashboard();
+  });
 });
+
+$('btn-cerrar-movimiento').addEventListener('click', () => ocultar($('modal-movimiento')));
+$('btn-guardar-movimiento').addEventListener('click', async () => {
+  if (!movimientoActual) return;
+  const totalCentavos = aCentavos(Number($('movimiento-total').value));
+  if (!totalCentavos) return;
+  const concepto = $('movimiento-concepto').value.trim();
+  const { tipo, id, categoria } = movimientoActual;
+  const usuario = dispositivo()?.nombre || '';
+  if (tipo === 'compra') {
+    const detalle = concepto ? [{ concepto, cantidad: 1, unidad: '', precioCentavos: totalCentavos }] : [];
+    const compra = crearCompra({ id: id || crearId('comp'), fecha: hoyISO(), categoria, totalCentavos, usuario, detalle });
+    await guardarCompra(compra); encolar('compra', compra); sincronizarAhora();
+  } else {
+    const gasto = crearGasto({ id: id || crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario });
+    await guardarGasto(gasto); encolar('gasto', gasto); sincronizarAhora();
+  }
+  ocultar($('modal-movimiento'));
+  renderListaMovimientos();
+});
+
 async function abrirModalPinDueno() {
   const estado = await llamarApi({ accion: 'estado' });
   const crear = Boolean(estado.requiereConfiguracion);
@@ -969,7 +1092,6 @@ async function abrirModalPinDueno() {
   $('pin-dueno').value = ''; ocultar($('error-pin-dueno')); mostrar($('modal-pin-dueno'));
   setTimeout(() => $('pin-dueno').focus(), 50);
 }
-$('btn-ver-resultados').addEventListener('click', abrirModalPinDueno);
 $('btn-confirmar-pin-dueno').addEventListener('click', async () => {
   const estado = await llamarApi({ accion: 'estado' });
   const respuesta = await llamarApi({ accion: estado.requiereConfiguracion ? 'configurarPinDueno' : 'verificarPinDueno', pin: $('pin-dueno').value });

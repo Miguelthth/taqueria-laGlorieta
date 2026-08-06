@@ -753,7 +753,11 @@ const esCobrable = ordenes.esCobrable;
 
 // ── js/gastos.js ──────────────────────────────────────────
 const gastos = (function () {
-const CATEGORIAS_GASTO = ['Gas', 'Renta', 'Luz', 'Agua', 'Nómina', 'Limpieza', 'Transporte', 'Otro'];
+// Investigado sobre lo que compra/gasta una taquería típica en México
+// (PLAN.md §5 y §6, más lo estándar del giro): insumos vs. gastos fijos --
+// son dos cosas distintas y por eso van en categorías separadas.
+const CATEGORIAS_COMPRA = ['Carnes', 'Tortillas', 'Verduras y salsas', 'Abarrotes', 'Bebidas', 'Desechables', 'Gas', 'Hielo', 'Otro'];
+const CATEGORIAS_GASTO = ['Renta', 'Luz', 'Agua', 'Nómina', 'Permisos', 'Mantenimiento', 'Transporte', 'Publicidad', 'Limpieza', 'Otro'];
 
 function crearGasto({ id, fecha, categoria, concepto, totalCentavos, usuario, ahoraMs = Date.now() }) {
   return { id, fecha, categoria, concepto, totalCentavos, capturadaPor: usuario, modificado: ahoraMs };
@@ -763,8 +767,9 @@ function crearCompra({ id, fecha, categoria, totalCentavos, usuario, detalle = [
   return { id, fecha, categoria, totalCentavos, capturadaPor: usuario, detalle, modificado: ahoraMs };
 }
 
-  return { CATEGORIAS_GASTO, crearGasto, crearCompra };
+  return { CATEGORIAS_COMPRA, CATEGORIAS_GASTO, crearGasto, crearCompra };
 })();
+const CATEGORIAS_COMPRA = gastos.CATEGORIAS_COMPRA;
 const CATEGORIAS_GASTO = gastos.CATEGORIAS_GASTO;
 const crearGasto = gastos.crearGasto;
 const crearCompra = gastos.crearCompra;
@@ -779,27 +784,89 @@ function resumenCaja({ tickets = [], compras = [], gastos = [] }) {
   return { ventasCentavos, comprasCentavos, gastosCentavos, utilidadCentavos: ventasCentavos - comprasCentavos - gastosCentavos };
 }
 
+// Las líneas de un ticket real guardan el precio como `precioUnitarioCentavos`
+// (ticket.js::agregarProducto) -- `precioCentavos` es solo un alias por si
+// llega de otra fuente (ej. un import viejo). Sin el primero, esto siempre
+// sumaba $0 de dinero por producto aunque las piezas contaran bien.
+function precioLinea(linea) { return Number(linea.precioUnitarioCentavos ?? linea.precioCentavos ?? 0); }
+
 function ventasPorProducto(tickets = []) {
   const porId = new Map();
   tickets.filter((ticket) => !ticket.cancelado && !ticket.practica).flatMap((ticket) => ticket.lineas || []).forEach((linea) => {
     const id = linea.productoId || linea.id || linea.nombre;
     const previo = porId.get(id) || { id, nombre: linea.nombre, cantidad: 0, totalCentavos: 0 };
     previo.cantidad += Number(linea.cantidad || 0);
-    previo.totalCentavos += Number(linea.cantidad || 0) * Number(linea.precioCentavos || 0);
+    previo.totalCentavos += Number(linea.cantidad || 0) * precioLinea(linea);
     porId.set(id, previo);
   });
   return [...porId.values()].sort((a, b) => b.totalCentavos - a.totalCentavos);
 }
 
-  return { resumenCaja, ventasPorProducto };
+function vigentes(tickets) { return tickets.filter((t) => !t.cancelado && !t.practica); }
+
+// "Hora pico" -- de qué hora a qué hora se vende más. Miguel lo señaló como la
+// gráfica que más iba a usar (PLAN.md §7.5): dice cuánta carne poner y a qué
+// hora abrir.
+function ventasPorHora(tickets = []) {
+  const porHora = new Map();
+  vigentes(tickets).forEach((t) => {
+    const hora = Number((t.hora || '00:00').slice(0, 2));
+    const previo = porHora.get(hora) || { hora, cantidadTickets: 0, totalCentavos: 0 };
+    previo.cantidadTickets += 1;
+    previo.totalCentavos += Number(t.totalCentavos || 0);
+    porHora.set(hora, previo);
+  });
+  return [...porHora.values()].sort((a, b) => a.hora - b.hora);
+}
+
+// Ventas por día (últimos N días con datos) -- para ver si sube, baja, o un
+// día particular se cae.
+function ventasPorDia(tickets = []) {
+  const porFecha = new Map();
+  vigentes(tickets).forEach((t) => {
+    const previo = porFecha.get(t.fecha) || { fecha: t.fecha, cantidadTickets: 0, totalCentavos: 0 };
+    previo.cantidadTickets += 1;
+    previo.totalCentavos += Number(t.totalCentavos || 0);
+    porFecha.set(t.fecha, previo);
+  });
+  return [...porFecha.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+// Ticket promedio y número de clientes: si un día vendió menos, ¿vinieron
+// menos personas o gastaron menos cada una? Son dos problemas distintos.
+function ticketPromedio(tickets = []) {
+  const lista = vigentes(tickets);
+  const totalCentavos = lista.reduce((acc, t) => acc + Number(t.totalCentavos || 0), 0);
+  return { cantidadTickets: lista.length, promedioCentavos: lista.length ? Math.round(totalCentavos / lista.length) : 0 };
+}
+
+// Cuánto cobró cada quien -- sale gratis porque cada ticket ya guarda quién
+// lo capturó (operador). Sirve para el turno pesado y para rastrear un error.
+function cobradoPorUsuario(tickets = []) {
+  const porUsuario = new Map();
+  vigentes(tickets).forEach((t) => {
+    const nombre = t.operador || t.cobradoPor || 'Sin nombre';
+    const previo = porUsuario.get(nombre) || { nombre, cantidadTickets: 0, totalCentavos: 0 };
+    previo.cantidadTickets += 1;
+    previo.totalCentavos += Number(t.totalCentavos || 0);
+    porUsuario.set(nombre, previo);
+  });
+  return [...porUsuario.values()].sort((a, b) => b.totalCentavos - a.totalCentavos);
+}
+
+  return { resumenCaja, ventasPorProducto, ventasPorHora, ventasPorDia, ticketPromedio, cobradoPorUsuario };
 })();
 const resumenCaja = reportes.resumenCaja;
 const ventasPorProducto = reportes.ventasPorProducto;
+const ventasPorHora = reportes.ventasPorHora;
+const ventasPorDia = reportes.ventasPorDia;
+const ticketPromedio = reportes.ticketPromedio;
+const cobradoPorUsuario = reportes.cobradoPorUsuario;
 
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T07:04:03Z';
+const VERSION_DEPLOY = '2026-08-06T08:31:54Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -871,6 +938,8 @@ function irA(vistaId) {
   document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
   $(vistaId).classList.add('activa');
   if (vistaId === 'vista-ajustes') renderAjustes();
+  if (vistaId === 'vista-compras') renderVistaCompras();
+  if (vistaId === 'vista-dashboard') renderDashboard();
 }
 
 // ============================================================
@@ -1147,17 +1216,115 @@ function renderAjustes() {
   renderTicketsHoy();
   $('chk-modo-practica').checked = modoPractica;
   renderConexion();
-  $('tarjeta-administracion').classList.remove('oculto');
-  $('panel-resultados').classList.toggle('oculto', !duenoAutorizado());
-  if (duenoAutorizado()) renderResumenCaja();
 }
 
-async function renderResumenCaja() {
-  const [tickets, compras, gastos] = await Promise.all([listarTicketsPorFecha(hoyISO()), listarCompras(hoyISO()), listarGastos(hoyISO())]);
+// ============================================================
+// COMPRAS Y GASTOS (categorías, bajo modo dueño)
+// ============================================================
+
+let tabMovimientos = 'compra';
+let movimientoActual = null; // { tipo: 'compra'|'gasto', id: existente o null, categoria }
+
+function renderVistaCompras() {
+  renderCategoriasMovimiento();
+  renderListaMovimientos();
+}
+
+function renderCategoriasMovimiento() {
+  const categorias = tabMovimientos === 'compra' ? CATEGORIAS_COMPRA : CATEGORIAS_GASTO;
+  const cont = $('cuadricula-categorias');
+  cont.innerHTML = '';
+  for (const categoria of categorias) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-categoria';
+    btn.textContent = categoria;
+    btn.addEventListener('click', () => abrirModalMovimiento({ tipo: tabMovimientos, categoria }));
+    cont.appendChild(btn);
+  }
+}
+
+async function renderListaMovimientos() {
+  const lista = tabMovimientos === 'compra' ? await listarCompras() : await listarGastos();
+  $('titulo-lista-movs').textContent = tabMovimientos === 'compra' ? 'Compras registradas' : 'Gastos registrados';
+  const cont = $('lista-movimientos');
+  cont.innerHTML = '';
+  if (!lista.length) { cont.innerHTML = '<p class="texto-suave">Todavía no hay nada aquí.</p>'; return; }
+  for (const mov of lista.slice(0, 60)) {
+    const fila = document.createElement('button');
+    fila.type = 'button';
+    fila.className = 'fila-item fila-mov';
+    const detalle = mov.concepto ? ` · ${escapeHtml(mov.concepto)}` : '';
+    fila.innerHTML = `<span class="item-nombre">${escapeHtml(mov.categoria)}${detalle} <span class="texto-suave">${mov.fecha}</span></span><span class="item-precio">${formatoMoneda(mov.totalCentavos)}</span>`;
+    fila.addEventListener('click', () => abrirModalMovimiento({ tipo: tabMovimientos, id: mov.id, categoria: mov.categoria, concepto: mov.concepto, totalCentavos: mov.totalCentavos }));
+    cont.appendChild(fila);
+  }
+}
+
+function abrirModalMovimiento({ tipo, id = null, categoria, concepto = '', totalCentavos = 0 }) {
+  movimientoActual = { tipo, id, categoria };
+  $('movimiento-titulo').textContent = categoria;
+  $('movimiento-total').value = totalCentavos ? aPesos(totalCentavos) : '';
+  $('movimiento-concepto').value = concepto || '';
+  mostrar($('modal-movimiento'));
+  setTimeout(() => $('movimiento-total').focus(), 50);
+}
+
+// ============================================================
+// DASHBOARD (bajo modo dueño)
+// ============================================================
+
+let periodoDashboard = 'hoy';
+
+function rangoFechas(periodo) {
+  const hasta = hoyISO();
+  if (periodo === 'hoy') return { desde: hasta, hasta };
+  const dias = periodo === 'semana' ? 7 : 30;
+  const desde = new Date(Date.now() - (dias - 1) * 86400000).toISOString().slice(0, 10);
+  return { desde, hasta };
+}
+
+async function renderDashboard() {
+  const { desde, hasta } = rangoFechas(periodoDashboard);
+  const enRango = (fecha) => fecha >= desde && fecha <= hasta;
+  const [todosTickets, todasCompras, todosGastos] = await Promise.all([listarTodos(), listarCompras(), listarGastos()]);
+  const tickets = todosTickets.filter((t) => enRango(t.fecha));
+  const compras = todasCompras.filter((c) => enRango(c.fecha));
+  const gastos = todosGastos.filter((g) => enRango(g.fecha));
+
   const r = resumenCaja({ tickets, compras, gastos });
-  $('kpis-caja').innerHTML = `<div class="kpi"><span>Ventas</span><strong>${formatoMoneda(r.ventasCentavos)}</strong></div><div class="kpi"><span>Compras</span><strong>${formatoMoneda(r.comprasCentavos)}</strong></div><div class="kpi"><span>Gastos</span><strong>${formatoMoneda(r.gastosCentavos)}</strong></div><div class="kpi"><span>Utilidad</span><strong>${formatoMoneda(r.utilidadCentavos)}</strong></div>`;
+  const prom = ticketPromedio(tickets);
+  $('kpis-dashboard').innerHTML = [
+    ['Ventas', formatoMoneda(r.ventasCentavos)], ['Compras', formatoMoneda(r.comprasCentavos)],
+    ['Gastos', formatoMoneda(r.gastosCentavos)], ['Utilidad', formatoMoneda(r.utilidadCentavos)],
+    ['Tickets', String(prom.cantidadTickets)], ['Ticket prom.', formatoMoneda(prom.promedioCentavos)],
+  ].map(([label, valor]) => `<div class="kpi"><div class="valor">${valor}</div><div class="label">${label}</div></div>`).join('');
+
+  renderBarras('grafica-horas', ventasPorHora(tickets).map((h) => ({ etiqueta: `${String(h.hora).padStart(2, '0')}:00`, valor: h.totalCentavos })));
+  renderBarras('grafica-dias', ventasPorDia(tickets).map((d) => ({ etiqueta: d.fecha.slice(5), valor: d.totalCentavos })));
+
   const vendidos = ventasPorProducto(tickets);
-  $('lista-productos-vendidos').innerHTML = vendidos.length ? `<h3>Más vendido hoy</h3>${vendidos.map((p) => `<p>${escapeHtml(p.nombre)}: <strong>${p.cantidad}</strong> · ${formatoMoneda(p.totalCentavos)}</p>`).join('')}` : '<p class="texto-suave">Aún no hay ventas hoy.</p>';
+  $('lista-mas-vendido').innerHTML = vendidos.length
+    ? vendidos.slice(0, 8).map((p) => `<p>${escapeHtml(p.nombre)}: <strong>${p.cantidad}</strong> · ${formatoMoneda(p.totalCentavos)}</p>`).join('')
+    : '<p class="texto-suave">Sin ventas en este periodo.</p>';
+
+  const porUsuario = cobradoPorUsuario(tickets);
+  $('lista-por-usuario').innerHTML = porUsuario.length
+    ? porUsuario.map((u) => `<p>${escapeHtml(u.nombre)}: <strong>${u.cantidadTickets}</strong> tickets · ${formatoMoneda(u.totalCentavos)}</p>`).join('')
+    : '<p class="texto-suave">Sin datos todavía.</p>';
+}
+
+function renderBarras(contId, filas) {
+  const cont = $(contId);
+  if (!filas.length) { cont.innerHTML = '<p class="texto-suave">Sin datos todavía.</p>'; return; }
+  const max = Math.max(...filas.map((f) => f.valor), 1);
+  cont.innerHTML = filas.map((f) => `
+    <div class="barra-fila">
+      <span class="barra-etiqueta">${escapeHtml(f.etiqueta)}</span>
+      <div class="barra-pista"><div class="barra-relleno" style="width:${Math.max(3, Math.round((f.valor / max) * 100))}%"></div></div>
+      <span class="barra-valor">${formatoMoneda(f.valor)}</span>
+    </div>
+  `).join('');
 }
 
 function renderConexion() {
@@ -1727,23 +1894,46 @@ $('btn-reiniciar-medicion').addEventListener('click', () => {
   }
 });
 
-$('btn-guardar-compra').addEventListener('click', async () => {
-  if (!exigirModoDueno()) return;
-  const totalCentavos = aCentavos(Number($('compra-total').value));
-  const categoria = $('compra-categoria').value.trim();
-  if (!categoria || !totalCentavos) return;
-  const compra = crearCompra({ id: crearId('comp'), fecha: hoyISO(), categoria, totalCentavos, usuario: sesionApi().usuario.nombre });
-  await guardarCompra(compra); encolar('compra', compra); $('compra-categoria').value = ''; $('compra-total').value = ''; sincronizarAhora(); renderResumenCaja();
+$('btn-compras').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-compras'); });
+$('btn-dashboard').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-dashboard'); });
+$('btn-volver-compras').addEventListener('click', () => irA('vista-cobrar'));
+$('btn-volver-dashboard').addEventListener('click', () => irA('vista-cobrar'));
+
+document.querySelectorAll('.tab-movimiento').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    tabMovimientos = btn.dataset.tab;
+    document.querySelectorAll('.tab-movimiento').forEach((b) => b.classList.toggle('activo', b === btn));
+    renderVistaCompras();
+  });
 });
-$('btn-guardar-gasto').addEventListener('click', async () => {
-  if (!exigirModoDueno()) return;
-  const totalCentavos = aCentavos(Number($('gasto-total').value));
-  const categoria = $('gasto-categoria').value;
-  const concepto = $('gasto-concepto').value.trim();
-  if (!concepto || !totalCentavos) return;
-  const gasto = crearGasto({ id: crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario: sesionApi().usuario.nombre });
-  await guardarGasto(gasto); encolar('gasto', gasto); $('gasto-concepto').value = ''; $('gasto-total').value = ''; sincronizarAhora(); renderResumenCaja();
+document.querySelectorAll('.tab-periodo').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    periodoDashboard = btn.dataset.periodo;
+    document.querySelectorAll('.tab-periodo').forEach((b) => b.classList.toggle('activo', b === btn));
+    renderDashboard();
+  });
 });
+
+$('btn-cerrar-movimiento').addEventListener('click', () => ocultar($('modal-movimiento')));
+$('btn-guardar-movimiento').addEventListener('click', async () => {
+  if (!movimientoActual) return;
+  const totalCentavos = aCentavos(Number($('movimiento-total').value));
+  if (!totalCentavos) return;
+  const concepto = $('movimiento-concepto').value.trim();
+  const { tipo, id, categoria } = movimientoActual;
+  const usuario = dispositivo()?.nombre || '';
+  if (tipo === 'compra') {
+    const detalle = concepto ? [{ concepto, cantidad: 1, unidad: '', precioCentavos: totalCentavos }] : [];
+    const compra = crearCompra({ id: id || crearId('comp'), fecha: hoyISO(), categoria, totalCentavos, usuario, detalle });
+    await guardarCompra(compra); encolar('compra', compra); sincronizarAhora();
+  } else {
+    const gasto = crearGasto({ id: id || crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario });
+    await guardarGasto(gasto); encolar('gasto', gasto); sincronizarAhora();
+  }
+  ocultar($('modal-movimiento'));
+  renderListaMovimientos();
+});
+
 async function abrirModalPinDueno() {
   const estado = await llamarApi({ accion: 'estado' });
   const crear = Boolean(estado.requiereConfiguracion);
@@ -1753,7 +1943,6 @@ async function abrirModalPinDueno() {
   $('pin-dueno').value = ''; ocultar($('error-pin-dueno')); mostrar($('modal-pin-dueno'));
   setTimeout(() => $('pin-dueno').focus(), 50);
 }
-$('btn-ver-resultados').addEventListener('click', abrirModalPinDueno);
 $('btn-confirmar-pin-dueno').addEventListener('click', async () => {
   const estado = await llamarApi({ accion: 'estado' });
   const respuesta = await llamarApi({ accion: estado.requiereConfiguracion ? 'configurarPinDueno' : 'verificarPinDueno', pin: $('pin-dueno').value });

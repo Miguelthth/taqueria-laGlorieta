@@ -210,6 +210,21 @@ button { cursor: pointer; }
   font-size: 13px;
   font-weight: 700;
 }
+.btn-libre-chico { padding: 7px 9px; font-size: 12px;
+}
+.btn-admin {
+  flex-shrink: 0;
+  background: var(--tarjeta-suave);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .cuadricula {
   flex: 1;
@@ -517,7 +532,7 @@ button { cursor: pointer; }
 
 /* ===== Ajustes — pantalla normal, con scroll ===== */
 
-#vista-ajustes.activa {
+#vista-ajustes.activa, #vista-compras.activa, #vista-dashboard.activa {
   display: block;
   height: 100dvh;
   overflow-y: auto;
@@ -652,6 +667,47 @@ button { cursor: pointer; }
 .kpi { flex: 1; background: var(--tarjeta-suave); border-radius: 10px; padding: 10px; text-align: center; }
 .kpi .valor { font-size: 20px; font-weight: 800; }
 .kpi .label { font-size: 11px; color: var(--texto-suave); }
+
+/* ===== Compras/Gastos y Dashboard ===== */
+.tabs-pildora { display: flex; gap: 8px; padding: 4px 14px 4px; }
+.tab-movimiento, .tab-periodo {
+  flex: 1;
+  background: var(--tarjeta-suave);
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  padding: 9px 4px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--texto-suave);
+}
+.tab-movimiento.activo, .tab-periodo.activo { background: var(--naranja); border-color: var(--naranja); color: #fff; }
+
+.cuadricula-categorias {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px 14px;
+}
+.btn-categoria {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 16px 6px;
+  font-weight: 700;
+  font-size: 14px;
+  text-align: center;
+  box-shadow: 0 1px 0 var(--borde) inset, 0 2px 5px rgba(0, 0, 0, 0.06);
+}
+.btn-categoria:active { transform: scale(0.96); background: var(--naranja-tenue); }
+
+.fila-mov { background: none; border: none; width: 100%; text-align: left; font: inherit; color: inherit; }
+
+.barras-horizontales { display: flex; flex-direction: column; gap: 8px; }
+.barra-fila { display: flex; align-items: center; gap: 8px; }
+.barra-etiqueta { width: 48px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--texto-suave); }
+.barra-pista { flex: 1; background: var(--tarjeta-suave); border-radius: 999px; height: 16px; overflow: hidden; }
+.barra-relleno { background: var(--naranja); height: 100%; border-radius: 999px; min-width: 3px; }
+.barra-valor { width: 70px; flex-shrink: 0; text-align: right; font-size: 12px; font-weight: 700; }
 
 .fila-precio-pendiente { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
 .fila-precio-pendiente .item-nombre { flex: 1; }
