@@ -10,7 +10,7 @@ import {
 } from './catalogo.js';
 import {
   crearCarrito, agregarProducto, agregarLibre, quitarUno,
-  establecerCantidad, quitarLinea, cantidadDe, totalCentavos, estaVacio,
+  establecerCantidad, quitarLinea, cantidadDe, totalCentavos, estaVacio, resumenTexto,
 } from './ticket.js';
 import { aCentavos, aPesos, formatoMoneda } from './dinero.js';
 import { calcularCambio } from './cambio.js';
@@ -22,7 +22,7 @@ import { crearSesion, sesionVigente } from './acceso.js';
 import { urlApi, guardarUrlApi, dispositivo, guardarDispositivo, llamarApi, sesionApi, guardarSesion, cerrarSesion } from './api.js';
 import { leerCola, encolar, confirmar } from './cola.js';
 import { VERSION_DEPLOY } from './version.js';
-import { crearOrden, avanzarOrden, esCobrable, crearPlato, separarTodo, resumenComal } from './ordenes.js';
+import { crearOrden, avanzarOrden, esCobrable, crearPlato, separarTodo, resumenComal, alternarSin } from './ordenes.js';
 import { crearCompra, crearGasto } from './gastos.js';
 import { resumenCaja, ventasPorProducto } from './reportes.js';
 
@@ -43,6 +43,9 @@ let ultimoErrorSync = '';
 let cobroConfirmado = false;
 let ordenCobrando = null;
 let sesionDueno = null;
+// Compositor de órdenes (+ Orden, arriba): { platos: [Plato...], platoActivo: Plato, para }.
+// Independiente del carrito de venta directa -- nunca lo toca ni lo mezcla.
+let ordenEnProgreso = null;
 
 // ---------- helpers ----------
 function $(id) { return document.getElementById(id); }
@@ -58,6 +61,15 @@ function escapeHtml(s) {
 }
 function marcarInicioSiHaceFalta() {
   if (estaVacio(carrito)) inicioTicketMs = ahora();
+}
+
+// Mientras se compone una orden (+ Orden), los toques de la cuadrícula van al
+// plato activo, no al carrito de venta directa -- los dos caminos conviven
+// sin pisarse (PLAN.md sección 4).
+function componiendoOrden() { return ordenEnProgreso !== null; }
+function obtenerLineasActivas() { return componiendoOrden() ? ordenEnProgreso.platoActivo.lineas : carrito; }
+function fijarLineasActivas(lineas) {
+  if (componiendoOrden()) ordenEnProgreso.platoActivo.lineas = lineas; else carrito = lineas;
 }
 
 // ---------- pantalla siempre encendida ----------
@@ -84,14 +96,67 @@ function irA(vistaId) {
 function renderCobrar() {
   ultimoCambioCarritoMs = Date.now();
   ocultar($('aviso-carrito'));
-  if (estaVacio(carrito)) borrarCarritoEnCurso(); else guardarCarritoEnCurso(carrito);
-  const total = totalCentavos(carrito);
-  $('total-grande').textContent = formatoMoneda(total);
-  if (total > 0) mostrar($('btn-guardar-orden')); else ocultar($('btn-guardar-orden'));
-  renderTicketLineas();
   renderCuadricula();
-  renderPago();
   renderOverlayPrecios();
+  if (componiendoOrden()) {
+    ocultar($('fila-ticket'));
+    ocultar($('fila-pago'));
+    mostrar($('panel-orden'));
+    mostrar($('orden-acciones'));
+    $('total-grande').textContent = formatoMoneda(totalCentavos(ordenEnProgreso.platoActivo.lineas));
+    renderPanelOrden();
+  } else {
+    if (estaVacio(carrito)) borrarCarritoEnCurso(); else guardarCarritoEnCurso(carrito);
+    ocultar($('panel-orden'));
+    ocultar($('orden-acciones'));
+    mostrar($('fila-ticket'));
+    const total = totalCentavos(carrito);
+    $('total-grande').textContent = formatoMoneda(total);
+    renderTicketLineas();
+    renderPago();
+  }
+}
+
+function renderPanelOrden() {
+  const plato = ordenEnProgreso.platoActivo;
+  $('orden-plato-num').textContent = String(ordenEnProgreso.platos.length + 1);
+  $('orden-plato-lineas').innerHTML = plato.lineas.length
+    ? plato.lineas.map((l) => `<span class="orden-linea">${l.cantidad} ${escapeHtml(l.nombre)}</span>`).join('')
+    : '<p class="texto-suave">Toca productos en la cuadrícula de abajo…</p>';
+  document.querySelectorAll('.chip-sin').forEach((chip) => chip.classList.toggle('activo', plato.sin.includes(chip.dataset.sin)));
+  $('orden-platos-listos').innerHTML = ordenEnProgreso.platos.map((p, i) => `<div class="orden-plato-listo">Plato ${i + 1}: ${escapeHtml(resumenTexto(p.lineas))}${p.sin.length ? ` · ⚠ SIN ${p.sin.join(', ').toUpperCase()}` : ''}</div>`).join('');
+  const hayAlgo = plato.lineas.length > 0 || ordenEnProgreso.platos.length > 0;
+  $('btn-guardar-orden-nueva').disabled = !hayAlgo;
+  $('btn-separar-todo').disabled = !hayAlgo;
+}
+
+function abrirComposerOrden() {
+  if (tienePreciosPendientes(catalogoActual)) { irA('vista-ajustes'); return; }
+  ordenEnProgreso = { platos: [], platoActivo: crearPlato(crearId('pla')), para: '' };
+  $('orden-para').value = '';
+  renderCobrar();
+  setTimeout(() => $('orden-para').focus(), 50);
+}
+
+function cerrarComposerOrden() {
+  ordenEnProgreso = null;
+  renderCobrar();
+}
+
+function platosCompletos() {
+  const platos = [...ordenEnProgreso.platos];
+  if (ordenEnProgreso.platoActivo.lineas.length) platos.push(ordenEnProgreso.platoActivo);
+  return platos;
+}
+
+async function guardarOrdenComoNueva(platos) {
+  if (!platos.length) return;
+  const orden = { ...crearOrden({ id: crearId('ord'), platos, dispositivo: dispositivo()?.nombre || '' }), para: ordenEnProgreso.para || '' };
+  await guardarOrden(orden); encolar('orden', orden); sincronizarAhora();
+  vibrar([20, 30, 20]);
+  cerrarComposerOrden();
+  renderBadgeOrdenes();
+  abrirOrdenes();
 }
 
 function renderTicketLineas() {
@@ -144,7 +209,7 @@ function cablearToqueLargo(btn, alSoltarCorto, alSostener) {
 function crearBotonProducto(producto) {
   const btn = document.createElement('button');
   btn.className = 'btn-producto';
-  const cant = cantidadDe(carrito, producto.id);
+  const cant = cantidadDe(obtenerLineasActivas(), producto.id);
   btn.innerHTML = `
     <span class="nombre">${escapeHtml(producto.nombre)}</span>
     <span class="precio">${formatoMoneda(producto.precioCentavos)}</span>
@@ -169,8 +234,8 @@ function renderCuadricula() {
 
 function tocarProducto(producto) {
   if (tienePreciosPendientes(catalogoActual)) { irA('vista-ajustes'); return; }
-  marcarInicioSiHaceFalta();
-  carrito = agregarProducto(carrito, producto, 1);
+  if (!componiendoOrden()) marcarInicioSiHaceFalta();
+  fijarLineasActivas(agregarProducto(obtenerLineasActivas(), producto, 1));
   vibrar(15);
   renderCobrar();
 }
@@ -280,7 +345,7 @@ function abrirModalLibre() {
 function abrirModalCantidad(producto) {
   productoCantidadActual = producto;
   $('cantidad-nombre').textContent = producto.nombre;
-  const actual = cantidadDe(carrito, producto.id);
+  const actual = cantidadDe(obtenerLineasActivas(), producto.id);
   $('cantidad-input').value = actual > 0 ? actual : 1;
   mostrar($('modal-cantidad'));
   setTimeout(() => { $('cantidad-input').focus(); $('cantidad-input').select(); }, 50);
@@ -610,40 +675,80 @@ function renderBannerPractica() {
   if (modoPractica) mostrar(banner); else ocultar(banner);
 }
 
-function abrirConfigOrden() {
-  if (estaVacio(carrito)) return;
-  $('orden-lineas-previa').innerHTML = carrito.map((l) => `<p><strong>${l.cantidad}</strong> ${escapeHtml(l.nombre)}</p>`).join('');
-  document.querySelectorAll('.orden-sin').forEach((input) => { input.checked = false; }); $('orden-separar').checked = false;
-  mostrar($('modal-orden-config'));
-}
-async function guardarComoOrden() {
-  if (estaVacio(carrito)) return;
-  const sin = [...document.querySelectorAll('.orden-sin:checked')].map((input) => input.value);
-  let platos = [{ ...crearPlato(crearId('pla')), lineas: carrito.map((l) => ({ ...l })), sin }];
-  if ($('orden-separar').checked) platos = separarTodo(platos);
-  const orden = crearOrden({ id: crearId('ord'), platos, dispositivo: dispositivo()?.nombre || '' });
-  await guardarOrden(orden); encolar('orden', orden); sincronizarAhora();
-  ocultar($('modal-orden-config')); carrito = crearCarrito(); borrarCarritoEnCurso(); inicioTicketMs = null; renderCobrar(); abrirOrdenes();
+// Tiempo transcurrido corto ("hace 4 min") -- lo que delata una orden olvidada.
+function tiempoTranscurrido(ms) {
+  const min = Math.floor((Date.now() - ms) / 60000);
+  if (min < 1) return 'recién';
+  if (min < 60) return `hace ${min} min`;
+  return `hace ${Math.floor(min / 60)} h`;
 }
 
 async function abrirOrdenes() {
-  const cont = $('lista-ordenes'); const ordenes = await listarOrdenesActivas(); cont.innerHTML = '';
+  const cont = $('lista-ordenes');
+  const ordenes = await listarOrdenesActivas(); // ya viene ordenada por creada asc -- la más vieja primero
+  cont.innerHTML = '';
   if (!ordenes.length) cont.innerHTML = '<p class="texto-suave">No hay órdenes pendientes.</p>';
+  const idSiguiente = ordenes.find((o) => o.estado === 'cola')?.id;
   for (const orden of ordenes) {
-    const tarjeta = document.createElement('div'); tarjeta.className = 'tarjeta-orden';
-    const comal = resumenComal(orden.platos).map((l) => `${l.cantidad} ${escapeHtml(l.nombre)}`).join(' · ');
-    const platos = orden.platos.map((p, i) => `<p><strong>PLATO ${i + 1}</strong>${p.sin.length ? ` · ⚠ SIN ${p.sin.join(', ').toUpperCase()}` : ' · con todo'}<br>${p.lineas.map((l) => `<strong>${l.cantidad}</strong> ${escapeHtml(l.nombre)}`).join(' · ')}</p>`).join('');
-    tarjeta.innerHTML = `<strong>Orden ${orden.id.slice(-4)}</strong><p><strong>AL COMAL:</strong> ${comal}</p>${platos}<p class="texto-suave">${orden.estado === 'cola' ? 'En preparación' : 'Entregada — falta cobrar'}</p>`;
-    if (orden.estado === 'cola') {
-      const entregar = document.createElement('button'); entregar.className = 'btn-secundario'; entregar.textContent = 'Marcar entregada';
-      entregar.addEventListener('click', async () => { const actualizada = avanzarOrden(orden, 'entregada'); await guardarOrden(actualizada); encolar('orden', actualizada); sincronizarAhora(); abrirOrdenes(); }); tarjeta.appendChild(entregar);
-    } else if (esCobrable(orden)) {
-      const cobrarOrden = document.createElement('button'); cobrarOrden.className = 'btn-primario'; cobrarOrden.textContent = 'Cobrar esta orden';
-      cobrarOrden.addEventListener('click', () => { carrito = orden.platos.flatMap((p) => p.lineas); ordenCobrando = orden; ocultar($('modal-ordenes')); renderCobrar(); abrirModalCobro(); }); tarjeta.appendChild(cobrarOrden);
-    }
-    cont.appendChild(tarjeta);
+    const fila = document.createElement('button');
+    fila.type = 'button';
+    fila.className = 'fila-orden' + (orden.id === idSiguiente ? ' siguiente' : '');
+    const resumen = resumenComal(orden.platos).map((l) => `${l.cantidad} ${escapeHtml(l.nombre)}`).join(' · ');
+    fila.innerHTML = `
+      <div class="fila-orden-info">
+        <span class="fila-orden-num">#${orden.id.slice(-4)}${orden.para ? ` · ${escapeHtml(orden.para)}` : ''}</span>
+        <span class="fila-orden-suave">${resumen} — ${tiempoTranscurrido(orden.creada)}</span>
+      </div>
+      <span class="fila-orden-estado">${orden.estado === 'cola' ? 'En cola' : 'Falta cobrar'}</span>
+    `;
+    fila.addEventListener('click', () => abrirDetalleOrden(orden));
+    cont.appendChild(fila);
   }
+  renderBadgeOrdenes();
   mostrar($('modal-ordenes'));
+}
+
+async function renderBadgeOrdenes() {
+  const ordenes = await listarOrdenesActivas();
+  const enCola = ordenes.filter((o) => o.estado === 'cola').length;
+  const burbuja = $('burbuja-ordenes');
+  burbuja.textContent = String(enCola);
+  burbuja.classList.toggle('oculto', enCola === 0);
+}
+
+function abrirDetalleOrden(orden) {
+  $('detalle-orden-titulo').textContent = `Orden #${orden.id.slice(-4)}${orden.para ? ` · ${orden.para}` : ''}`;
+  const comal = resumenComal(orden.platos).map((l) => `<div>${l.cantidad} ${escapeHtml(l.nombre)}</div>`).join('');
+  const platos = orden.platos.map((p, i) => `
+    <div class="comanda-plato">
+      <div class="comanda-plato-titulo">PLATO ${i + 1}</div>
+      ${p.sin.length ? `<span class="comanda-sin">⚠ SIN ${p.sin.join(', ').toUpperCase()}</span>` : ''}
+      ${p.lineas.map((l) => `<div class="comanda-linea"><strong>${l.cantidad}</strong> ${escapeHtml(l.nombre.toUpperCase())}</div>`).join('')}
+    </div>
+  `).join('');
+  $('detalle-orden-cuerpo').innerHTML = `<div class="comanda-comal"><span class="etiqueta">AL COMAL</span>${comal}</div>${platos}`;
+
+  const acciones = $('detalle-orden-acciones');
+  acciones.innerHTML = '';
+  if (orden.estado === 'cola') {
+    const entregar = document.createElement('button'); entregar.className = 'btn-primario'; entregar.textContent = 'Marcar entregada';
+    entregar.addEventListener('click', async () => {
+      const actualizada = avanzarOrden(orden, 'entregada');
+      await guardarOrden(actualizada); encolar('orden', actualizada); sincronizarAhora();
+      ocultar($('modal-orden-detalle')); abrirOrdenes();
+    });
+    acciones.appendChild(entregar);
+  } else if (esCobrable(orden)) {
+    const cobrarOrden = document.createElement('button'); cobrarOrden.className = 'btn-primario'; cobrarOrden.textContent = 'Cobrar esta orden';
+    cobrarOrden.addEventListener('click', () => {
+      carrito = orden.platos.flatMap((p) => p.lineas);
+      ordenCobrando = orden;
+      ocultar($('modal-orden-detalle')); ocultar($('modal-ordenes'));
+      renderCobrar(); abrirModalCobro();
+    });
+    acciones.appendChild(cobrarOrden);
+  }
+  mostrar($('modal-orden-detalle'));
 }
 
 setInterval(() => {
@@ -657,10 +762,39 @@ setInterval(() => {
 $('btn-ir-ajustes').addEventListener('click', () => irA('vista-ajustes'));
 $('btn-ordenes').addEventListener('click', abrirOrdenes);
 $('btn-cerrar-ordenes').addEventListener('click', () => ocultar($('modal-ordenes')));
-$('btn-guardar-orden').addEventListener('click', abrirConfigOrden);
-$('btn-cerrar-orden-config').addEventListener('click', () => ocultar($('modal-orden-config')));
-$('btn-confirmar-orden').addEventListener('click', guardarComoOrden);
+$('btn-cerrar-orden-detalle').addEventListener('click', () => ocultar($('modal-orden-detalle')));
 $('btn-volver-cobrar').addEventListener('click', () => irA('vista-cobrar'));
+
+$('btn-nueva-orden').addEventListener('click', abrirComposerOrden);
+$('btn-cancelar-orden').addEventListener('click', () => {
+  const hayAlgo = ordenEnProgreso.platos.length > 0 || ordenEnProgreso.platoActivo.lineas.length > 0;
+  if (hayAlgo && !window.confirm('¿Descartar esta orden? Se perderá lo capturado.')) return;
+  cerrarComposerOrden();
+});
+$('orden-para').addEventListener('input', (e) => { if (componiendoOrden()) ordenEnProgreso.para = e.target.value; });
+document.querySelectorAll('.chip-sin').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    if (!componiendoOrden()) return;
+    ordenEnProgreso.platoActivo = alternarSin(ordenEnProgreso.platoActivo, chip.dataset.sin);
+    vibrar(10);
+    renderPanelOrden();
+  });
+});
+$('btn-otro-plato').addEventListener('click', () => {
+  if (!componiendoOrden() || !ordenEnProgreso.platoActivo.lineas.length) return;
+  ordenEnProgreso.platos.push(ordenEnProgreso.platoActivo);
+  ordenEnProgreso.platoActivo = crearPlato(crearId('pla'));
+  vibrar(10);
+  renderPanelOrden();
+});
+$('btn-separar-todo').addEventListener('click', () => {
+  if (!componiendoOrden()) return;
+  guardarOrdenComoNueva(separarTodo(platosCompletos()));
+});
+$('btn-guardar-orden-nueva').addEventListener('click', () => {
+  if (!componiendoOrden()) return;
+  guardarOrdenComoNueva(platosCompletos());
+});
 $('btn-ir-precios').addEventListener('click', () => irA('vista-ajustes'));
 
 $('btn-libre').addEventListener('click', abrirModalLibre);
@@ -736,7 +870,7 @@ $('cantidad-mas').addEventListener('click', () => {
 });
 $('btn-cantidad-quitar').addEventListener('click', () => {
   if (!productoCantidadActual) return;
-  carrito = quitarLinea(carrito, productoCantidadActual.id);
+  fijarLineasActivas(quitarLinea(obtenerLineasActivas(), productoCantidadActual.id));
   ocultar($('modal-cantidad'));
   vibrar(10);
   renderCobrar();
@@ -744,14 +878,15 @@ $('btn-cantidad-quitar').addEventListener('click', () => {
 $('btn-cantidad-listo').addEventListener('click', () => {
   if (!productoCantidadActual) return;
   const n = Math.max(0, Math.floor(Number($('cantidad-input').value)) || 0);
-  const yaExiste = carrito.some((l) => l.productoId === productoCantidadActual.id);
+  const lineas = obtenerLineasActivas();
+  const yaExiste = lineas.some((l) => l.productoId === productoCantidadActual.id);
   if (n === 0) {
-    carrito = quitarLinea(carrito, productoCantidadActual.id);
+    fijarLineasActivas(quitarLinea(lineas, productoCantidadActual.id));
   } else if (!yaExiste) {
-    marcarInicioSiHaceFalta();
-    carrito = agregarProducto(carrito, productoCantidadActual, n);
+    if (!componiendoOrden()) marcarInicioSiHaceFalta();
+    fijarLineasActivas(agregarProducto(lineas, productoCantidadActual, n));
   } else {
-    carrito = establecerCantidad(carrito, productoCantidadActual.id, n);
+    fijarLineasActivas(establecerCantidad(lineas, productoCantidadActual.id, n));
   }
   ocultar($('modal-cantidad'));
   vibrar(15);
@@ -852,7 +987,7 @@ function abrirHojaMas() {
     const btn = document.createElement('button');
     btn.className = 'btn-producto';
     btn.innerHTML = `<span class="nombre">${escapeHtml(producto.nombre)}</span><span class="precio">${formatoMoneda(producto.precioCentavos)}</span>`;
-    const cant = cantidadDe(carrito, producto.id);
+    const cant = cantidadDe(obtenerLineasActivas(), producto.id);
     btn.innerHTML = `<span class="nombre">${escapeHtml(producto.nombre)}</span><span class="precio">${formatoMoneda(producto.precioCentavos)}</span>${cant > 0 ? `<span class="badge">${cant}</span>` : ''}`;
     cablearToqueLargo(btn, () => { tocarProducto(producto); abrirHojaMas(); }, () => abrirModalCantidad(producto));
     cont.appendChild(btn);
@@ -867,6 +1002,7 @@ function abrirHojaMas() {
 pedirWakeLock();
 renderBannerPractica();
 renderCobrar();
+renderBadgeOrdenes();
 if (!dispositivo()) prepararAcceso(); else sincronizarAhora();
 window.addEventListener('online', sincronizarAhora);
 setInterval(sincronizarAhora, 10000);

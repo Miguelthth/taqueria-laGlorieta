@@ -23,13 +23,36 @@
 
     <header class="cabecera-cobrar">
       <div class="total-grande" id="total-grande">$0</div>
-      <button id="btn-ordenes" class="btn-ajustes" title="Órdenes" aria-label="Órdenes">📋</button>
-      <button id="btn-ir-ajustes" class="btn-ajustes" title="Ajustes" aria-label="Ajustes">⚙️</button>
+      <div class="botones-cabecera">
+        <button id="btn-nueva-orden" class="btn-ajustes btn-nueva-orden" title="Nueva orden" aria-label="Nueva orden">+ Orden</button>
+        <button id="btn-ordenes" class="btn-ajustes btn-con-burbuja" title="Órdenes" aria-label="Órdenes">📋<span id="burbuja-ordenes" class="burbuja oculto"></span></button>
+        <button id="btn-ir-ajustes" class="btn-ajustes" title="Ajustes" aria-label="Ajustes">⚙️</button>
+      </div>
     </header>
 
     <div class="fila-ticket" id="fila-ticket">
       <div class="ticket-lineas" id="ticket-lineas"></div>
       <button id="btn-libre" class="btn-libre">+ $ libre</button>
+    </div>
+
+    <!-- ===== COMPOSITOR DE ORDEN (reemplaza fila-ticket/fila-pago mientras se arma) ===== -->
+    <div id="panel-orden" class="panel-orden oculto">
+      <div class="orden-encabezado">
+        <input id="orden-para" type="text" class="orden-para-input" placeholder="Para (opcional)" maxlength="20">
+        <button id="btn-cancelar-orden" class="btn-cerrar" aria-label="Cancelar orden">✕</button>
+      </div>
+      <div id="orden-platos-listos" class="orden-platos-listos"></div>
+      <div class="orden-plato-activo">
+        <div class="orden-plato-titulo">PLATO <span id="orden-plato-num">1</span></div>
+        <div id="orden-plato-lineas" class="orden-plato-lineas"></div>
+        <div class="orden-chips">
+          <button type="button" class="chip-sin" data-sin="cebolla">S/cebolla</button>
+          <button type="button" class="chip-sin" data-sin="cilantro">S/cilantro</button>
+          <button type="button" class="chip-sin" data-sin="salsa">S/salsa</button>
+          <button type="button" class="chip-sin" data-sin="aguacate">S/aguacate</button>
+          <button type="button" class="chip-sin" data-sin="todo aparte">Todo aparte</button>
+        </div>
+      </div>
     </div>
 
     <div class="cuadricula" id="cuadricula"></div>
@@ -41,7 +64,11 @@
     </div>
 
     <div class="fila-pago" id="fila-pago"></div>
-    <button id="btn-guardar-orden" class="btn-secundario btn-orden oculto">Guardar como orden</button>
+    <div id="orden-acciones" class="orden-acciones oculto">
+      <button id="btn-otro-plato" class="btn-secundario">+ Otro plato</button>
+      <button id="btn-separar-todo" class="btn-secundario">Separar todo</button>
+      <button id="btn-guardar-orden-nueva" class="btn-primario">Guardar orden</button>
+    </div>
 
     <div id="barra-deshacer" class="barra-deshacer oculto">
       <span id="deshacer-texto">Ticket guardado</span>
@@ -57,18 +84,12 @@
     </div>
   </div>
 
-  <div id="modal-orden-config" class="hoja-fondo oculto">
+  <!-- ===== COMANDA (una orden, grande y legible para el taquero) ===== -->
+  <div id="modal-orden-detalle" class="hoja-fondo oculto">
     <div class="hoja-caja">
-      <div class="hoja-cabecera"><h2>Nueva orden — Plato 1</h2><button id="btn-cerrar-orden-config" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
-      <p class="texto-suave">Todo lo que ya capturaste va en este plato.</p>
-      <div id="orden-lineas-previa"></div>
-      <p><strong>Modificaciones del plato</strong></p>
-      <label class="campo-check"><input type="checkbox" value="cebolla" class="orden-sin"> Sin cebolla</label>
-      <label class="campo-check"><input type="checkbox" value="cilantro" class="orden-sin"> Sin cilantro</label>
-      <label class="campo-check"><input type="checkbox" value="salsa" class="orden-sin"> Sin salsa</label>
-      <label class="campo-check"><input type="checkbox" value="todo aparte" class="orden-sin"> Todo aparte</label>
-      <label class="campo-check"><input id="orden-separar" type="checkbox"> Separar todo en platos individuales</label>
-      <button id="btn-confirmar-orden" class="btn-primario">Guardar orden</button>
+      <div class="hoja-cabecera"><h2 id="detalle-orden-titulo">Orden</h2><button id="btn-cerrar-orden-detalle" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <div id="detalle-orden-cuerpo" class="comanda"></div>
+      <div id="detalle-orden-acciones" class="orden-acciones"></div>
     </div>
   </div>
 
