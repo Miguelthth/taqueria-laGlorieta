@@ -767,12 +767,48 @@ function crearCompra({ id, fecha, categoria, totalCentavos, usuario, detalle = [
   return { id, fecha, categoria, totalCentavos, capturadaPor: usuario, detalle, modificado: ahoraMs };
 }
 
-  return { CATEGORIAS_COMPRA, CATEGORIAS_GASTO, crearGasto, crearCompra };
+// Agregar/renombrar/borrar categorías -- las de arriba son el punto de
+// partida, no una lista cerrada. Solo se guardan las que él agregue (las de
+// fábrica viven en el código, no en el storage) para no duplicar datos.
+// Mismo patrón que catalogo.js/sesion.js: localStorage porque es chico.
+const CLAVE_EXTRA_COMPRA = 'taq_categorias_compra_extra';
+const CLAVE_EXTRA_GASTO = 'taq_categorias_gasto_extra';
+
+function leerExtra(clave) {
+  try { const lista = JSON.parse(localStorage.getItem(clave)); return Array.isArray(lista) ? lista : []; }
+  catch { return []; }
+}
+function agregarExtra(clave, nombre) {
+  const lista = leerExtra(clave);
+  if (!lista.includes(nombre)) localStorage.setItem(clave, JSON.stringify([...lista, nombre]));
+}
+function quitarExtra(clave, nombre) {
+  localStorage.setItem(clave, JSON.stringify(leerExtra(clave).filter((c) => c !== nombre)));
+}
+function renombrarExtra(clave, anterior, nuevo) {
+  localStorage.setItem(clave, JSON.stringify(leerExtra(clave).map((c) => (c === anterior ? nuevo : c))));
+}
+
+function categoriasCompra() { return [...CATEGORIAS_COMPRA, ...leerExtra(CLAVE_EXTRA_COMPRA)]; }
+function categoriasGasto() { return [...CATEGORIAS_GASTO, ...leerExtra(CLAVE_EXTRA_GASTO)]; }
+function esCategoriaDeFabrica(tipo, nombre) { return (tipo === 'compra' ? CATEGORIAS_COMPRA : CATEGORIAS_GASTO).includes(nombre); }
+
+function agregarCategoria(tipo, nombre) { agregarExtra(tipo === 'compra' ? CLAVE_EXTRA_COMPRA : CLAVE_EXTRA_GASTO, nombre); }
+function quitarCategoria(tipo, nombre) { quitarExtra(tipo === 'compra' ? CLAVE_EXTRA_COMPRA : CLAVE_EXTRA_GASTO, nombre); }
+function renombrarCategoria(tipo, anterior, nuevo) { renombrarExtra(tipo === 'compra' ? CLAVE_EXTRA_COMPRA : CLAVE_EXTRA_GASTO, anterior, nuevo); }
+
+  return { CATEGORIAS_COMPRA, CATEGORIAS_GASTO, crearGasto, crearCompra, categoriasCompra, categoriasGasto, esCategoriaDeFabrica, agregarCategoria, quitarCategoria, renombrarCategoria };
 })();
 const CATEGORIAS_COMPRA = gastos.CATEGORIAS_COMPRA;
 const CATEGORIAS_GASTO = gastos.CATEGORIAS_GASTO;
 const crearGasto = gastos.crearGasto;
 const crearCompra = gastos.crearCompra;
+const categoriasCompra = gastos.categoriasCompra;
+const categoriasGasto = gastos.categoriasGasto;
+const esCategoriaDeFabrica = gastos.esCategoriaDeFabrica;
+const agregarCategoria = gastos.agregarCategoria;
+const quitarCategoria = gastos.quitarCategoria;
+const renombrarCategoria = gastos.renombrarCategoria;
 
 // ── js/reportes.js ──────────────────────────────────────────
 const reportes = (function () {
@@ -933,7 +969,7 @@ const variacionPorcentaje = reportes.variacionPorcentaje;
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T08:51:31Z';
+const VERSION_DEPLOY = '2026-08-06T09:13:35Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -1291,14 +1327,18 @@ function renderAjustes() {
 
 let tabMovimientos = 'compra';
 let movimientoActual = null; // { tipo: 'compra'|'gasto', id: existente o null, categoria }
+let categoriaEditando = null; // null = agregando nueva; string = editando/borrando esa
 
 function renderVistaCompras() {
   renderCategoriasMovimiento();
   renderListaMovimientos();
 }
 
+// Toque corto = capturar en esa categoría (lo de siempre). Toque largo, solo
+// en las que él agregó (nunca en las de fábrica) = renombrar o borrar --
+// mismo patrón de toque largo que ya usa la cuadrícula de productos.
 function renderCategoriasMovimiento() {
-  const categorias = tabMovimientos === 'compra' ? CATEGORIAS_COMPRA : CATEGORIAS_GASTO;
+  const categorias = tabMovimientos === 'compra' ? categoriasCompra() : categoriasGasto();
   const cont = $('cuadricula-categorias');
   cont.innerHTML = '';
   for (const categoria of categorias) {
@@ -1306,9 +1346,30 @@ function renderCategoriasMovimiento() {
     btn.type = 'button';
     btn.className = 'btn-categoria';
     btn.textContent = categoria;
-    btn.addEventListener('click', () => abrirModalMovimiento({ tipo: tabMovimientos, categoria }));
+    const esDeFabrica = esCategoriaDeFabrica(tabMovimientos, categoria);
+    cablearToqueLargo(
+      btn,
+      () => abrirModalMovimiento({ tipo: tabMovimientos, categoria }),
+      () => { if (!esDeFabrica) abrirModalCategoria(categoria); }
+    );
     cont.appendChild(btn);
   }
+  const agregar = document.createElement('button');
+  agregar.type = 'button';
+  agregar.className = 'btn-categoria btn-categoria-agregar';
+  agregar.textContent = '+ Categoría';
+  agregar.addEventListener('click', () => abrirModalCategoria(null));
+  cont.appendChild(agregar);
+}
+
+function abrirModalCategoria(nombreExistente) {
+  categoriaEditando = nombreExistente;
+  $('categoria-titulo').textContent = nombreExistente ? 'Editar categoría' : 'Nueva categoría';
+  $('categoria-nombre').value = nombreExistente || '';
+  ocultar($('error-categoria'));
+  $('btn-borrar-categoria').classList.toggle('oculto', !nombreExistente);
+  mostrar($('modal-categoria'));
+  setTimeout(() => $('categoria-nombre').select(), 50);
 }
 
 async function renderListaMovimientos() {
@@ -1333,6 +1394,7 @@ function abrirModalMovimiento({ tipo, id = null, categoria, concepto = '', total
   $('movimiento-titulo').textContent = categoria;
   $('movimiento-total').value = totalCentavos ? aPesos(totalCentavos) : '';
   $('movimiento-concepto').value = concepto || '';
+  ocultar($('error-movimiento'));
   mostrar($('modal-movimiento'));
   setTimeout(() => $('movimiento-total').focus(), 50);
 }
@@ -1475,17 +1537,33 @@ async function prepararAcceso() {
 async function entrar() {
   const url = $('operador-url').value.trim() || urlApi();
   const nombre = $('operador-nombre').value.trim();
-  const pin = $('operador-pin').value;
   const error = $('error-acceso');
   if (!url || !nombre) { error.textContent = 'Falta la URL o el nombre.'; mostrar(error); return; }
+  ocultar(error);
+  const boton = $('btn-registrar-operador');
+  const textoOriginal = boton.textContent;
+  // Sin esto no se ve NADA mientras espera a Apps Script -- y la primera vez
+  // (cuando instala la hoja en Drive) puede tardar varios segundos, no es un
+  // toque que se haya perdido.
+  boton.disabled = true;
+  boton.textContent = 'Entrando…';
   try {
     guardarUrlApi(url);
     const estado = await llamarApi({ accion: 'estado' });
-    if (!estado.ok) await llamarApi({ accion: 'instalar', nombreDueno: nombre });
+    if (!estado.ok) {
+      boton.textContent = 'Preparando tu hoja en Drive…';
+      await llamarApi({ accion: 'instalar', nombreDueno: nombre });
+    }
     if (!dispositivo()) guardarDispositivo(nombre);
     ocultar($('modal-operador'));
-    await sincronizarAhora();
-  } catch (e) { error.textContent = e.message || 'No se pudo entrar.'; mostrar(error); }
+    sincronizarAhora(); // sigue en segundo plano, no hace esperar más al que ya entró
+  } catch (e) {
+    error.textContent = e.message || 'No se pudo entrar. Revisa la URL o tu conexión.';
+    mostrar(error);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
 }
 
 // Modo dueño (PLAN.md 7.1): una sola llave protege precios, productos,
@@ -1664,6 +1742,7 @@ function abrirModalTicket(ticket) {
   $('ticket-resumen').textContent = ticket.lineas.map((l) => `${l.cantidad} ${l.nombre}`).join(', ');
   $('ticket-total').value = aPesos(ticket.totalCentavos);
   $('ticket-motivo').value = '';
+  ocultar($('error-ticket'));
   renderLineasTicketEditando();
   mostrar($('modal-ticket'));
   setTimeout(() => $('ticket-total').select(), 50);
@@ -1793,7 +1872,7 @@ function abrirDetalleOrden(orden) {
     });
     acciones.appendChild(entregar);
   } else if (esCobrable(orden)) {
-    const cobrarOrden = document.createElement('button'); cobrarOrden.className = 'btn-primario'; cobrarOrden.textContent = 'Cobrar esta orden';
+    const cobrarOrden = document.createElement('button'); cobrarOrden.className = 'btn-primario'; cobrarOrden.textContent = 'Cobrar';
     cobrarOrden.addEventListener('click', () => {
       carrito = orden.platos.flatMap((p) => p.lineas);
       ordenCobrando = orden;
@@ -1901,7 +1980,10 @@ $('btn-guardar-ticket').addEventListener('click', async () => {
   if (!ticketEditando) return;
   const totalCentavos = aCentavos(Number($('ticket-total').value));
   const motivo = $('ticket-motivo').value.trim();
-  if (!totalCentavos || !motivo) return;
+  const error = $('error-ticket');
+  if (!totalCentavos) { error.textContent = 'El total tiene que ser mayor a $0.'; mostrar(error); return; }
+  if (!motivo) { error.textContent = 'Escribe el motivo de la corrección.'; mostrar(error); return; }
+  ocultar(error);
   const corregido = corregirTicket(ticketEditando, { totalCentavos, lineas: lineasTicketEditando, motivo, autor: dispositivo()?.nombre || 'local' });
   await guardarTicket(corregido); encolar('ticket', corregido); sincronizarAhora();
   ocultar($('modal-ticket')); renderTicketsHoy();
@@ -1909,7 +1991,9 @@ $('btn-guardar-ticket').addEventListener('click', async () => {
 $('btn-cancelar-ticket').addEventListener('click', async () => {
   if (!ticketEditando) return;
   const motivo = $('ticket-motivo').value.trim();
-  if (!motivo) return;
+  const error = $('error-ticket');
+  if (!motivo) { error.textContent = 'Escribe el motivo para cancelar el ticket.'; mostrar(error); return; }
+  ocultar(error);
   const cancelado = cancelarTicket(ticketEditando, { motivo, autor: dispositivo()?.nombre || 'local' });
   await guardarTicket(cancelado); encolar('ticket', cancelado); sincronizarAhora();
   ocultar($('modal-ticket')); renderTicketsHoy();
@@ -2021,7 +2105,9 @@ $('btn-cerrar-movimiento').addEventListener('click', () => ocultar($('modal-movi
 $('btn-guardar-movimiento').addEventListener('click', async () => {
   if (!movimientoActual) return;
   const totalCentavos = aCentavos(Number($('movimiento-total').value));
-  if (!totalCentavos) return;
+  const errorMov = $('error-movimiento');
+  if (!totalCentavos) { errorMov.textContent = 'Escribe un total mayor a $0.'; mostrar(errorMov); return; }
+  ocultar(errorMov);
   const concepto = $('movimiento-concepto').value.trim();
   const { tipo, id, categoria } = movimientoActual;
   const usuario = dispositivo()?.nombre || '';
@@ -2035,6 +2121,26 @@ $('btn-guardar-movimiento').addEventListener('click', async () => {
   }
   ocultar($('modal-movimiento'));
   renderListaMovimientos();
+});
+
+$('btn-cerrar-categoria').addEventListener('click', () => ocultar($('modal-categoria')));
+$('btn-guardar-categoria').addEventListener('click', () => {
+  const nombre = $('categoria-nombre').value.trim();
+  const error = $('error-categoria');
+  if (!nombre) { error.textContent = 'Escribe un nombre.'; mostrar(error); return; }
+  const yaExiste = (tabMovimientos === 'compra' ? categoriasCompra() : categoriasGasto())
+    .some((c) => c.toLowerCase() === nombre.toLowerCase() && c !== categoriaEditando);
+  if (yaExiste) { error.textContent = 'Ya hay una categoría con ese nombre.'; mostrar(error); return; }
+  if (categoriaEditando) renombrarCategoria(tabMovimientos, categoriaEditando, nombre);
+  else agregarCategoria(tabMovimientos, nombre);
+  ocultar($('modal-categoria'));
+  renderCategoriasMovimiento();
+});
+$('btn-borrar-categoria').addEventListener('click', () => {
+  if (!categoriaEditando) return;
+  quitarCategoria(tabMovimientos, categoriaEditando);
+  ocultar($('modal-categoria'));
+  renderCategoriasMovimiento();
 });
 
 async function abrirModalPinDueno() {

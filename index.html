@@ -69,7 +69,7 @@
     <div id="orden-acciones" class="orden-acciones oculto">
       <button id="btn-otro-plato" class="btn-secundario">+ Otro plato</button>
       <button id="btn-separar-todo" class="btn-secundario">Separar todo</button>
-      <button id="btn-guardar-orden-nueva" class="btn-primario">Guardar orden</button>
+      <button id="btn-guardar-orden-nueva" class="btn-primario">Generar orden</button>
     </div>
 
     <div id="barra-deshacer" class="barra-deshacer oculto">
@@ -181,6 +181,7 @@
       <div id="ticket-lineas-editar" class="lineas-editar"></div>
       <label class="campo-label">Nuevo total</label><input id="ticket-total" class="input-grande-modal" type="number" inputmode="decimal">
       <label class="campo-label">Motivo</label><input id="ticket-motivo" class="input-texto-modal" type="text" placeholder="Ej. se cobró uno de más">
+      <p id="error-ticket" class="texto-error oculto"></p>
       <button id="btn-guardar-ticket" class="btn-primario">Guardar corrección</button>
       <button id="btn-cancelar-ticket" class="btn-secundario btn-peligro">Cancelar ticket</button>
     </div>
@@ -248,11 +249,23 @@
       <button type="button" class="tab-movimiento" data-tab="gasto">Gastos</button>
     </div>
     <div id="cuadricula-categorias" class="cuadricula-categorias"></div>
+    <p class="texto-suave" style="padding:0 14px;">Mantén presionada una categoría que tú agregaste para renombrarla o borrarla.</p>
     <div class="tarjeta">
       <h2 id="titulo-lista-movs">Compras registradas</h2>
       <div id="lista-movimientos"></div>
     </div>
   </section>
+
+  <div id="modal-categoria" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <div class="hoja-cabecera"><h2 id="categoria-titulo">Nueva categoría</h2><button id="btn-cerrar-categoria" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <label class="campo-label">Nombre</label>
+      <input id="categoria-nombre" type="text" class="input-texto-modal" placeholder="Ej. Verduras">
+      <p id="error-categoria" class="texto-error oculto"></p>
+      <button id="btn-guardar-categoria" class="btn-primario">Guardar</button>
+      <button id="btn-borrar-categoria" class="btn-secundario btn-peligro oculto">Borrar categoría</button>
+    </div>
+  </div>
 
   <div id="modal-movimiento" class="hoja-fondo oculto">
     <div class="hoja-caja hoja-chica">
@@ -261,6 +274,7 @@
       <input id="movimiento-total" type="number" inputmode="decimal" class="input-grande-modal" placeholder="0">
       <label class="campo-label">Concepto (opcional)</label>
       <input id="movimiento-concepto" type="text" class="input-texto-modal" placeholder="Ej. 5 kg de asada">
+      <p id="error-movimiento" class="texto-error oculto"></p>
       <button id="btn-guardar-movimiento" class="btn-primario">Guardar</button>
     </div>
   </div>

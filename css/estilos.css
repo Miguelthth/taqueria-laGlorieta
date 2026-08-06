@@ -668,6 +668,8 @@ button { cursor: pointer; }
 .kpi .valor { font-size: 20px; font-weight: 800; }
 .kpi .label { font-size: 11px; color: var(--texto-suave); }
 
+.texto-error { color: #b8261a; font-weight: 700; font-size: 14px; background: #fde2de; border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+
 /* ===== Compras/Gastos y Dashboard ===== */
 .tarjeta-ganancia { text-align: center; background: var(--naranja-tenue); border: none; }
 .ganancia-etiqueta { font-size: 13px; font-weight: 700; color: var(--naranja-oscuro); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -709,6 +711,7 @@ button { cursor: pointer; }
   box-shadow: 0 1px 0 var(--borde) inset, 0 2px 5px rgba(0, 0, 0, 0.06);
 }
 .btn-categoria:active { transform: scale(0.96); background: var(--naranja-tenue); }
+.btn-categoria-agregar { color: var(--naranja-oscuro); border-style: dashed; background: var(--tarjeta-suave); }
 
 .fila-mov { background: none; border: none; width: 100%; text-align: left; font: inherit; color: inherit; }
 
