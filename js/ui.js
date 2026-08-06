@@ -18,6 +18,7 @@ import { hoyISO, horaISO, crearId } from './modelo.js';
 import { guardarTicket, borrarTicket, listarTicketsPorFecha, guardarOrden, listarOrdenesActivas, guardarCompra, guardarGasto, listarCompras, listarGastos } from './almacen.js';
 import { ahora, registrarDuracion, estadisticas, reiniciarMedicion } from './cronometro.js';
 import { cargarCarritoEnCurso, guardarCarritoEnCurso, borrarCarritoEnCurso, cargarModoPractica, guardarModoPractica, carritoOlvidado, corregirTicket, cancelarTicket } from './sesion.js';
+import { crearSesion, sesionVigente } from './acceso.js';
 import { urlApi, guardarUrlApi, dispositivo, guardarDispositivo, llamarApi, sesionApi, guardarSesion, cerrarSesion } from './api.js';
 import { leerCola, encolar, confirmar } from './cola.js';
 import { VERSION_DEPLOY } from './version.js';
@@ -41,7 +42,7 @@ let sincronizando = false;
 let ultimoErrorSync = '';
 let cobroConfirmado = false;
 let ordenCobrando = null;
-let resultadosAbiertos = false;
+let sesionDueno = null;
 
 // ---------- helpers ----------
 function $(id) { return document.getElementById(id); }
@@ -298,8 +299,8 @@ function renderAjustes() {
   $('chk-modo-practica').checked = modoPractica;
   renderConexion();
   $('tarjeta-administracion').classList.remove('oculto');
-  $('panel-resultados').classList.toggle('oculto', !resultadosAbiertos);
-  if (resultadosAbiertos) renderResumenCaja();
+  $('panel-resultados').classList.toggle('oculto', !duenoAutorizado());
+  if (duenoAutorizado()) renderResumenCaja();
 }
 
 async function renderResumenCaja() {
@@ -368,8 +369,16 @@ async function entrar() {
   } catch (e) { error.textContent = e.message || 'No se pudo entrar.'; mostrar(error); }
 }
 
-function esDuenoActual() { return resultadosAbiertos; }
-function exigirModoDueno() { return true; }
+// Modo dueño (PLAN.md 7.1): una sola llave protege precios, productos,
+// compras, gastos y métricas -- nunca varias sueltas. La sesión vence sola a
+// los 30 min (acceso.js::sesionVigente), así no hay que acordarse de
+// "cerrar sesión" en el mostrador.
+function duenoAutorizado() { return sesionVigente(sesionDueno); }
+function exigirModoDueno() {
+  if (duenoAutorizado()) return true;
+  abrirModalPinDueno();
+  return false;
+}
 function publicarCatalogo() {
   catalogoActual = catalogoActual.map((producto) => ({ ...producto, modificado: Date.now() }));
   guardarCatalogo(catalogoActual);
@@ -645,7 +654,7 @@ setInterval(() => {
 // eventos fijos (una sola vez)
 // ============================================================
 
-$('btn-ir-ajustes').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-ajustes'); });
+$('btn-ir-ajustes').addEventListener('click', () => irA('vista-ajustes'));
 $('btn-ordenes').addEventListener('click', abrirOrdenes);
 $('btn-cerrar-ordenes').addEventListener('click', () => ocultar($('modal-ordenes')));
 $('btn-guardar-orden').addEventListener('click', abrirConfigOrden);
@@ -816,19 +825,22 @@ $('btn-guardar-gasto').addEventListener('click', async () => {
   const gasto = crearGasto({ id: crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario: sesionApi().usuario.nombre });
   await guardarGasto(gasto); encolar('gasto', gasto); $('gasto-concepto').value = ''; $('gasto-total').value = ''; sincronizarAhora(); renderResumenCaja();
 });
-$('btn-ver-resultados').addEventListener('click', async () => {
+async function abrirModalPinDueno() {
   const estado = await llamarApi({ accion: 'estado' });
   const crear = Boolean(estado.requiereConfiguracion);
-  $('titulo-pin-dueno').textContent = crear ? 'Crear PIN del dueño' : 'Resultados del dueño';
-  $('texto-pin-dueno').textContent = crear ? 'Este PIN solo servirá para abrir resultados, ganancias y dashboards.' : 'Escribe el PIN del dueño para ver ganancias y datos.';
-  $('btn-confirmar-pin-dueno').textContent = crear ? 'Crear PIN y ver resultados' : 'Ver resultados';
+  $('titulo-pin-dueno').textContent = crear ? 'Crear PIN del dueño' : 'Modo dueño';
+  $('texto-pin-dueno').textContent = crear ? 'Este PIN protegerá precios, productos, compras, gastos y resultados.' : 'Escribe el PIN del dueño para continuar.';
+  $('btn-confirmar-pin-dueno').textContent = crear ? 'Crear PIN' : 'Entrar';
   $('pin-dueno').value = ''; ocultar($('error-pin-dueno')); mostrar($('modal-pin-dueno'));
-});
+  setTimeout(() => $('pin-dueno').focus(), 50);
+}
+$('btn-ver-resultados').addEventListener('click', abrirModalPinDueno);
 $('btn-confirmar-pin-dueno').addEventListener('click', async () => {
   const estado = await llamarApi({ accion: 'estado' });
   const respuesta = await llamarApi({ accion: estado.requiereConfiguracion ? 'configurarPinDueno' : 'verificarPinDueno', pin: $('pin-dueno').value });
   if (!respuesta.ok) { $('error-pin-dueno').textContent = 'PIN incorrecto.'; mostrar($('error-pin-dueno')); return; }
-  resultadosAbiertos = true; ocultar($('modal-pin-dueno')); renderAjustes();
+  sesionDueno = crearSesion({ nombre: dispositivo()?.nombre || 'dueño', esDueno: true });
+  ocultar($('modal-pin-dueno')); renderAjustes();
 });
 $('btn-sincronizar').addEventListener('click', sincronizarAhora);
 $('btn-registrar-operador').addEventListener('click', entrar);
