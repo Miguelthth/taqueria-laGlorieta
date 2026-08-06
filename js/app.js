@@ -353,9 +353,11 @@ const almacen = (function () {
 // catalogo.js.
 
 const NOMBRE_DB = 'taqueria';
-const VERSION_DB = 2;
+const VERSION_DB = 3;
 const ALMACEN_TICKETS = 'tickets';
 const ALMACEN_ORDENES = 'ordenes';
+const ALMACEN_COMPRAS = 'compras';
+const ALMACEN_GASTOS = 'gastos';
 
 let dbPromesa = null;
 
@@ -375,6 +377,12 @@ function abrirDB() {
         ordenes.createIndex('porEstado', 'estado', { unique: false });
         ordenes.createIndex('porTs', 'creada', { unique: false });
       }
+      [ALMACEN_COMPRAS, ALMACEN_GASTOS].forEach((nombre) => {
+        if (!db.objectStoreNames.contains(nombre)) {
+          const store = db.createObjectStore(nombre, { keyPath: 'id' });
+          store.createIndex('porFecha', 'fecha', { unique: false });
+        }
+      });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -382,11 +390,11 @@ function abrirDB() {
   return dbPromesa;
 }
 
-async function conStore(modo, fn) {
+async function conStore(modo, fn, nombre = ALMACEN_TICKETS) {
   const db = await abrirDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(ALMACEN_TICKETS, modo);
-    const store = tx.objectStore(ALMACEN_TICKETS);
+    const tx = db.transaction(nombre, modo);
+    const store = tx.objectStore(nombre);
     const resultado = fn(store);
     tx.oncomplete = () => resolve(resultado.result ?? resultado);
     tx.onerror = () => reject(tx.error);
@@ -453,7 +461,22 @@ async function listarOrdenesActivas() {
   });
 }
 
-  return { guardarTicket, borrarTicket, obtenerTicket, listarTicketsPorFecha, listarTodos, guardarOrden, listarOrdenesActivas };
+async function guardarMovimiento(nombre, movimiento) { await conStore('readwrite', (store) => store.put(movimiento), nombre); return movimiento; }
+async function listarMovimientos(nombre, fecha) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(nombre, 'readonly');
+    const req = fecha ? tx.objectStore(nombre).index('porFecha').getAll(fecha) : tx.objectStore(nombre).getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => Number(b.modificado) - Number(a.modificado)));
+    req.onerror = () => reject(req.error);
+  });
+}
+function guardarCompra(compra) { return guardarMovimiento(ALMACEN_COMPRAS, compra); }
+function guardarGasto(gasto) { return guardarMovimiento(ALMACEN_GASTOS, gasto); }
+function listarCompras(fecha) { return listarMovimientos(ALMACEN_COMPRAS, fecha); }
+function listarGastos(fecha) { return listarMovimientos(ALMACEN_GASTOS, fecha); }
+
+  return { guardarTicket, borrarTicket, obtenerTicket, listarTicketsPorFecha, listarTodos, guardarOrden, listarOrdenesActivas, guardarCompra, guardarGasto, listarCompras, listarGastos };
 })();
 const guardarTicket = almacen.guardarTicket;
 const borrarTicket = almacen.borrarTicket;
@@ -462,6 +485,10 @@ const listarTicketsPorFecha = almacen.listarTicketsPorFecha;
 const listarTodos = almacen.listarTodos;
 const guardarOrden = almacen.guardarOrden;
 const listarOrdenesActivas = almacen.listarOrdenesActivas;
+const guardarCompra = almacen.guardarCompra;
+const guardarGasto = almacen.guardarGasto;
+const listarCompras = almacen.listarCompras;
+const listarGastos = almacen.listarGastos;
 
 // ── js/cronometro.js ──────────────────────────────────────────
 const cronometro = (function () {
@@ -634,10 +661,13 @@ const confirmar = cola.confirmar;
 const api = (function () {
 const CLAVE_API = 'taq_api_url';
 const CLAVE_DISPOSITIVO = 'taq_dispositivo';
-const URL_SERVIDOR = 'https://script.google.com/macros/s/AKfycbwR0aIV5Kkxf4HgThFlR0K8NASMC06ZtUP5N5D4eqapObQk3QCWnzAthTrhsbqb4g_8Yw/exec';
+const CLAVE_SESION = 'taq_sesion';
 
-function urlApi() { return URL_SERVIDOR; }
+function urlApi() { return localStorage.getItem(CLAVE_API) || ''; }
 function guardarUrlApi(url) { localStorage.setItem(CLAVE_API, url.trim()); }
+function sesionApi() { try { return JSON.parse(localStorage.getItem(CLAVE_SESION)); } catch { return null; } }
+function guardarSesion(datos) { localStorage.setItem(CLAVE_SESION, JSON.stringify(datos)); }
+function cerrarSesion() { localStorage.removeItem(CLAVE_SESION); }
 function dispositivo() { try { return JSON.parse(localStorage.getItem(CLAVE_DISPOSITIVO)); } catch { return null; } }
 function guardarDispositivo(nombre) { const dato = { id: crypto.randomUUID(), nombre: nombre.trim() }; localStorage.setItem(CLAVE_DISPOSITIVO, JSON.stringify(dato)); return dato; }
 async function llamarApi(datos) {
@@ -646,17 +676,56 @@ async function llamarApi(datos) {
   const cuerpo = await respuesta.json(); if (!cuerpo.ok) throw new Error(cuerpo.error || 'El servidor rechazó la solicitud'); return cuerpo;
 }
 
-  return { urlApi, guardarUrlApi, dispositivo, guardarDispositivo, llamarApi };
+  return { urlApi, guardarUrlApi, sesionApi, guardarSesion, cerrarSesion, dispositivo, guardarDispositivo, llamarApi };
 })();
 const urlApi = api.urlApi;
 const guardarUrlApi = api.guardarUrlApi;
+const sesionApi = api.sesionApi;
+const guardarSesion = api.guardarSesion;
+const cerrarSesion = api.cerrarSesion;
 const dispositivo = api.dispositivo;
 const guardarDispositivo = api.guardarDispositivo;
 const llamarApi = api.llamarApi;
 
+// ── js/acceso.js ──────────────────────────────────────────
+const acceso = (function () {
+const DURACION_DUENO_MS = 30 * 60 * 1000;
+
+function crearSesion({ nombre, esDueno, ahoraMs = Date.now() }) {
+  return { nombre: nombre.trim(), esDueno: Boolean(esDueno), iniciadaMs: ahoraMs };
+}
+
+function sesionVigente(sesion, ahoraMs = Date.now()) {
+  return Boolean(sesion?.esDueno && ahoraMs - sesion.iniciadaMs < DURACION_DUENO_MS);
+}
+
+function puedeModificarCatalogo(sesion, ahoraMs = Date.now()) {
+  return sesionVigente(sesion, ahoraMs);
+}
+
+  return { crearSesion, sesionVigente, puedeModificarCatalogo };
+})();
+const crearSesion = acceso.crearSesion;
+const sesionVigente = acceso.sesionVigente;
+const puedeModificarCatalogo = acceso.puedeModificarCatalogo;
+
 // ── js/ordenes.js ──────────────────────────────────────────
 const ordenes = (function () {
 const NIVEL = { cola: 0, entregada: 1, cobrada: 2, cancelada: 2 };
+
+function crearPlato(id) { return { id, lineas: [], sin: [] }; }
+function agregarLineaAPlato(plato, producto) {
+  const existe = plato.lineas.find((linea) => linea.productoId === producto.productoId);
+  const lineas = existe ? plato.lineas.map((linea) => linea.productoId === producto.productoId ? { ...linea, cantidad: linea.cantidad + 1 } : linea) : [...plato.lineas, { ...producto, cantidad: 1 }];
+  return { ...plato, lineas };
+}
+function alternarSin(plato, modificador) { return { ...plato, sin: plato.sin.includes(modificador) ? plato.sin.filter((x) => x !== modificador) : [...plato.sin, modificador] }; }
+function separarTodo(platos) { return platos.flatMap((plato) => plato.lineas.flatMap((linea) => Array.from({ length: linea.cantidad }, (_, i) => ({ id: `${plato.id}-${i}`, lineas: [{ ...linea, cantidad: 1 }], sin: [...plato.sin] })))); }
+function resumenComal(platos) {
+  const total = new Map();
+  platos.flatMap((plato) => plato.lineas).forEach((linea) => { const previo = total.get(linea.productoId) || { productoId: linea.productoId, nombre: linea.nombre, cantidad: 0 }; previo.cantidad += linea.cantidad; total.set(linea.productoId, previo); });
+  return [...total.values()];
+}
 
 function crearOrden({ id, platos, ahoraMs = Date.now(), dispositivo = '' }) {
   return { id, platos, estado: 'cola', creada: ahoraMs, modificado: ahoraMs, dispositivo, entregada: null, cobrada: null };
@@ -670,16 +739,66 @@ function avanzarOrden(orden, estado, ahoraMs = Date.now()) {
 
 function esCobrable(orden) { return orden.estado === 'entregada'; }
 
-  return { crearOrden, avanzarOrden, esCobrable };
+  return { crearPlato, agregarLineaAPlato, alternarSin, separarTodo, resumenComal, crearOrden, avanzarOrden, esCobrable };
 })();
+const crearPlato = ordenes.crearPlato;
+const agregarLineaAPlato = ordenes.agregarLineaAPlato;
+const alternarSin = ordenes.alternarSin;
+const separarTodo = ordenes.separarTodo;
+const resumenComal = ordenes.resumenComal;
 const crearOrden = ordenes.crearOrden;
 const avanzarOrden = ordenes.avanzarOrden;
 const esCobrable = ordenes.esCobrable;
 
+// ── js/gastos.js ──────────────────────────────────────────
+const gastos = (function () {
+const CATEGORIAS_GASTO = ['Gas', 'Renta', 'Luz', 'Agua', 'Nómina', 'Limpieza', 'Transporte', 'Otro'];
+
+function crearGasto({ id, fecha, categoria, concepto, totalCentavos, usuario, ahoraMs = Date.now() }) {
+  return { id, fecha, categoria, concepto, totalCentavos, capturadaPor: usuario, modificado: ahoraMs };
+}
+
+function crearCompra({ id, fecha, categoria, totalCentavos, usuario, detalle = [], ahoraMs = Date.now() }) {
+  return { id, fecha, categoria, totalCentavos, capturadaPor: usuario, detalle, modificado: ahoraMs };
+}
+
+  return { CATEGORIAS_GASTO, crearGasto, crearCompra };
+})();
+const CATEGORIAS_GASTO = gastos.CATEGORIAS_GASTO;
+const crearGasto = gastos.crearGasto;
+const crearCompra = gastos.crearCompra;
+
+// ── js/reportes.js ──────────────────────────────────────────
+const reportes = (function () {
+function resumenCaja({ tickets = [], compras = [], gastos = [] }) {
+  const sumar = (lista) => lista.reduce((total, item) => total + Number(item.totalCentavos || 0), 0);
+  const ventasCentavos = sumar(tickets.filter((ticket) => !ticket.cancelado && !ticket.practica));
+  const comprasCentavos = sumar(compras);
+  const gastosCentavos = sumar(gastos);
+  return { ventasCentavos, comprasCentavos, gastosCentavos, utilidadCentavos: ventasCentavos - comprasCentavos - gastosCentavos };
+}
+
+function ventasPorProducto(tickets = []) {
+  const porId = new Map();
+  tickets.filter((ticket) => !ticket.cancelado && !ticket.practica).flatMap((ticket) => ticket.lineas || []).forEach((linea) => {
+    const id = linea.productoId || linea.id || linea.nombre;
+    const previo = porId.get(id) || { id, nombre: linea.nombre, cantidad: 0, totalCentavos: 0 };
+    previo.cantidad += Number(linea.cantidad || 0);
+    previo.totalCentavos += Number(linea.cantidad || 0) * Number(linea.precioCentavos || 0);
+    porId.set(id, previo);
+  });
+  return [...porId.values()].sort((a, b) => b.totalCentavos - a.totalCentavos);
+}
+
+  return { resumenCaja, ventasPorProducto };
+})();
+const resumenCaja = reportes.resumenCaja;
+const ventasPorProducto = reportes.ventasPorProducto;
+
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T04:32:18Z';
+const VERSION_DEPLOY = '2026-08-06T05:09:06Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -703,6 +822,7 @@ let ticketEditando = null;
 let lineasTicketEditando = [];
 let ultimoCambioCarritoMs = Date.now();
 let sincronizando = false;
+let ultimoErrorSync = '';
 let cobroConfirmado = false;
 let ordenCobrando = null;
 
@@ -960,28 +1080,91 @@ function renderAjustes() {
   renderTicketsHoy();
   $('chk-modo-practica').checked = modoPractica;
   renderConexion();
+  $('tarjeta-administracion').classList.toggle('oculto', !esDuenoActual());
+  if (esDuenoActual()) renderResumenCaja();
+}
+
+async function renderResumenCaja() {
+  const [tickets, compras, gastos] = await Promise.all([listarTicketsPorFecha(hoyISO()), listarCompras(hoyISO()), listarGastos(hoyISO())]);
+  const r = resumenCaja({ tickets, compras, gastos });
+  $('kpis-caja').innerHTML = `<div class="kpi"><span>Ventas</span><strong>${formatoMoneda(r.ventasCentavos)}</strong></div><div class="kpi"><span>Compras</span><strong>${formatoMoneda(r.comprasCentavos)}</strong></div><div class="kpi"><span>Gastos</span><strong>${formatoMoneda(r.gastosCentavos)}</strong></div><div class="kpi"><span>Utilidad</span><strong>${formatoMoneda(r.utilidadCentavos)}</strong></div>`;
+  const vendidos = ventasPorProducto(tickets);
+  $('lista-productos-vendidos').innerHTML = vendidos.length ? `<h3>Más vendido hoy</h3>${vendidos.map((p) => `<p>${escapeHtml(p.nombre)}: <strong>${p.cantidad}</strong> · ${formatoMoneda(p.totalCentavos)}</p>`).join('')}` : '<p class="texto-suave">Aún no hay ventas hoy.</p>';
 }
 
 function renderConexion() {
   const cola = leerCola();
   $('version-deploy').textContent = `Versión instalada: ${new Date(VERSION_DEPLOY).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}`;
-  $('estado-sincronizacion').textContent = cola.length ? `${cola.length} operación(es) esperando respaldo.` : 'Respaldo automático en Drive activo.';
+  $('estado-sincronizacion').textContent = ultimoErrorSync || (cola.length ? `${cola.length} operación(es) esperando respaldo.` : 'Respaldo automático en Drive activo.');
   const ultima = Number(localStorage.getItem('taq_ultima_actualizacion') || 0);
   $('ultima-actualizacion').textContent = ultima ? `Última actualización: ${new Date(ultima).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Aún no hay una actualización correcta con Drive.';
 }
 
 async function sincronizarAhora() {
-  if (sincronizando || !urlApi()) return;
-  const d = dispositivo(); if (!d) { mostrar($('modal-operador')); return; }
+  const acceso = sesionApi();
+  if (sincronizando || !urlApi() || !acceso) { if (!acceso) prepararAcceso(); return; }
+  let d = dispositivo(); if (!d) d = guardarDispositivo(acceso.usuario.nombre);
   sincronizando = true;
   try {
-    await llamarApi({ accion: 'registrarDispositivo', ...d });
-    const respuesta = await llamarApi({ accion: 'sincronizar', dispositivo: d, operaciones: leerCola() });
+    await llamarApi({ accion: 'registrarDispositivo', token: acceso.token, dispositivo: d });
+    const respuesta = await llamarApi({ accion: 'sincronizar', token: acceso.token, dispositivo: d, desdeVersion: Number(localStorage.getItem('taq_version_datos') || 0), operaciones: leerCola() });
     confirmar(respuesta.confirmadas || []);
+    localStorage.setItem('taq_version_datos', String(respuesta.version || 0));
     localStorage.setItem('taq_ultima_actualizacion', String(Date.now()));
-    if (respuesta.productos?.length) { catalogoActual = respuesta.productos; guardarCatalogo(catalogoActual); renderCobrar(); }
-  } catch { /* La cola local queda intacta y se reintenta al recuperar señal. */ }
+    const cambios = respuesta.cambios || {};
+    if (cambios.productos?.length) { catalogoActual = cambios.productos; guardarCatalogo(catalogoActual); renderCobrar(); }
+    for (const ticket of cambios.tickets || []) await guardarTicket(ticket);
+    for (const orden of cambios.ordenes || []) await guardarOrden(orden);
+    for (const compra of cambios.compras || []) await guardarCompra(compra);
+    for (const gasto of cambios.gastos || []) await guardarGasto(gasto);
+    ultimoErrorSync = '';
+  } catch (error) {
+    ultimoErrorSync = `Sin respaldo: ${error.message || 'revisar conexión'}`;
+    if (/Sesión vencida|PIN/i.test(error.message || '')) { cerrarSesion(); prepararAcceso(); }
+  }
   finally { sincronizando = false; if ($('vista-ajustes').classList.contains('activa')) renderConexion(); }
+}
+
+async function prepararAcceso() {
+  const url = urlApi();
+  $('operador-url').classList.toggle('oculto', Boolean(url));
+  $('titulo-acceso').textContent = url ? 'Entrar a la taquería' : 'Conectar la taquería';
+  $('texto-acceso').textContent = url ? 'Escribe tu nombre y PIN.' : 'Pega la URL de Apps Script. Si es la primera vez, este nombre y PIN serán del dueño.';
+  $('error-acceso').textContent = '';
+  ocultar($('error-acceso'));
+  mostrar($('modal-operador'));
+}
+
+async function entrar() {
+  const url = $('operador-url').value.trim() || urlApi();
+  const nombre = $('operador-nombre').value.trim();
+  const pin = $('operador-pin').value;
+  const error = $('error-acceso');
+  if (!url || !nombre || !pin) { error.textContent = 'Falta la URL, el nombre o el PIN.'; mostrar(error); return; }
+  try {
+    guardarUrlApi(url);
+    const estado = await llamarApi({ accion: 'estado' });
+    if (!estado.ok) await llamarApi({ accion: 'instalar', nombreDueno: nombre, pinDueno: pin });
+    const respuesta = await llamarApi({ accion: 'iniciarSesion', nombre, pin });
+    guardarSesion({ token: respuesta.token, usuario: respuesta.usuario });
+    if (!dispositivo()) guardarDispositivo(nombre);
+    ocultar($('modal-operador'));
+    await sincronizarAhora();
+  } catch (e) { error.textContent = e.message || 'No se pudo entrar.'; mostrar(error); }
+}
+
+function esDuenoActual() { return Boolean(sesionApi()?.usuario?.esDueno); }
+function exigirModoDueno() {
+  if (esDuenoActual()) return true;
+  window.alert('Esta parte solo se abre con el PIN del dueño.');
+  return false;
+}
+function publicarCatalogo() {
+  catalogoActual = catalogoActual.map((producto) => ({ ...producto, modificado: Date.now() }));
+  guardarCatalogo(catalogoActual);
+  catalogoActual.forEach((producto) => encolar('producto', producto));
+  localStorage.setItem('taq_catalogo_publicado', '1');
+  sincronizarAhora();
 }
 
 function renderPreciosPendientes() {
@@ -1033,13 +1216,14 @@ function renderListaProductos() {
     check.type = 'checkbox';
     check.checked = enCuadricula;
     check.addEventListener('change', () => {
+      if (!exigirModoDueno()) { check.checked = enCuadricula; return; }
       if (check.checked) {
         if (cupoLibreEnCuadricula(catalogoActual) <= 0) { check.checked = false; return; }
         catalogoActual = moverACuadricula(catalogoActual, p.id);
       } else {
         catalogoActual = moverAOcultos(catalogoActual, p.id);
       }
-      guardarCatalogo(catalogoActual);
+      publicarCatalogo();
       renderListaProductos();
       renderCobrar();
     });
@@ -1063,9 +1247,10 @@ function renderListaProductos() {
     btnBorrar.className = 'mini-btn';
     btnBorrar.textContent = '✕';
     btnBorrar.addEventListener('click', () => {
+      if (!exigirModoDueno()) return;
       if (!window.confirm(`¿Borrar "${p.nombre}" por completo?`)) return;
       catalogoActual = desactivarProducto(catalogoActual, p.id);
-      guardarCatalogo(catalogoActual);
+      publicarCatalogo();
       renderListaProductos();
       renderCobrar();
     });
@@ -1096,6 +1281,7 @@ function cablearArrastre(manija, fila, contenedor) {
 
   manija.addEventListener('pointerdown', (e) => {
     if (manija === fila && e.target.closest('input, button')) return;
+    if (!exigirModoDueno()) return;
     e.preventDefault();
     arrastrando = true;
     fila.classList.add('arrastrando');
@@ -1115,7 +1301,7 @@ function cablearArrastre(manija, fila, contenedor) {
     fila.classList.remove('arrastrando');
     const idsEnOrden = [...contenedor.querySelectorAll('.fila-arrastrable:not(.oculta-en-cuadricula)')].map((f) => f.dataset.id);
     catalogoActual = reordenarCuadricula(catalogoActual, idsEnOrden);
-    guardarCatalogo(catalogoActual);
+    publicarCatalogo();
     renderCobrar();
   }
   manija.addEventListener('pointerup', soltar);
@@ -1204,11 +1390,20 @@ function renderBannerPractica() {
   if (modoPractica) mostrar(banner); else ocultar(banner);
 }
 
+function abrirConfigOrden() {
+  if (estaVacio(carrito)) return;
+  $('orden-lineas-previa').innerHTML = carrito.map((l) => `<p><strong>${l.cantidad}</strong> ${escapeHtml(l.nombre)}</p>`).join('');
+  document.querySelectorAll('.orden-sin').forEach((input) => { input.checked = false; }); $('orden-separar').checked = false;
+  mostrar($('modal-orden-config'));
+}
 async function guardarComoOrden() {
   if (estaVacio(carrito)) return;
-  const orden = crearOrden({ id: crearId('ord'), platos: [{ lineas: carrito, sin: [] }], dispositivo: dispositivo()?.nombre || '' });
+  const sin = [...document.querySelectorAll('.orden-sin:checked')].map((input) => input.value);
+  let platos = [{ ...crearPlato(crearId('pla')), lineas: carrito.map((l) => ({ ...l })), sin }];
+  if ($('orden-separar').checked) platos = separarTodo(platos);
+  const orden = crearOrden({ id: crearId('ord'), platos, dispositivo: dispositivo()?.nombre || '' });
   await guardarOrden(orden); encolar('orden', orden); sincronizarAhora();
-  carrito = crearCarrito(); borrarCarritoEnCurso(); inicioTicketMs = null; renderCobrar(); abrirOrdenes();
+  ocultar($('modal-orden-config')); carrito = crearCarrito(); borrarCarritoEnCurso(); inicioTicketMs = null; renderCobrar(); abrirOrdenes();
 }
 
 async function abrirOrdenes() {
@@ -1216,8 +1411,9 @@ async function abrirOrdenes() {
   if (!ordenes.length) cont.innerHTML = '<p class="texto-suave">No hay órdenes pendientes.</p>';
   for (const orden of ordenes) {
     const tarjeta = document.createElement('div'); tarjeta.className = 'tarjeta-orden';
-    const detalle = orden.platos.flatMap((p) => p.lineas).map((l) => `${l.cantidad} × ${l.nombre}`).join(' · ');
-    tarjeta.innerHTML = `<strong>Orden ${orden.id.slice(-4)}</strong><p>${detalle}</p><p class="texto-suave">${orden.estado === 'cola' ? 'En preparación' : 'Entregada — falta cobrar'}</p>`;
+    const comal = resumenComal(orden.platos).map((l) => `${l.cantidad} ${escapeHtml(l.nombre)}`).join(' · ');
+    const platos = orden.platos.map((p, i) => `<p><strong>PLATO ${i + 1}</strong>${p.sin.length ? ` · ⚠ SIN ${p.sin.join(', ').toUpperCase()}` : ' · con todo'}<br>${p.lineas.map((l) => `<strong>${l.cantidad}</strong> ${escapeHtml(l.nombre)}`).join(' · ')}</p>`).join('');
+    tarjeta.innerHTML = `<strong>Orden ${orden.id.slice(-4)}</strong><p><strong>AL COMAL:</strong> ${comal}</p>${platos}<p class="texto-suave">${orden.estado === 'cola' ? 'En preparación' : 'Entregada — falta cobrar'}</p>`;
     if (orden.estado === 'cola') {
       const entregar = document.createElement('button'); entregar.className = 'btn-secundario'; entregar.textContent = 'Marcar entregada';
       entregar.addEventListener('click', async () => { const actualizada = avanzarOrden(orden, 'entregada'); await guardarOrden(actualizada); encolar('orden', actualizada); sincronizarAhora(); abrirOrdenes(); }); tarjeta.appendChild(entregar);
@@ -1238,10 +1434,12 @@ setInterval(() => {
 // eventos fijos (una sola vez)
 // ============================================================
 
-$('btn-ir-ajustes').addEventListener('click', () => irA('vista-ajustes'));
+$('btn-ir-ajustes').addEventListener('click', () => { if (exigirModoDueno()) irA('vista-ajustes'); });
 $('btn-ordenes').addEventListener('click', abrirOrdenes);
 $('btn-cerrar-ordenes').addEventListener('click', () => ocultar($('modal-ordenes')));
-$('btn-guardar-orden').addEventListener('click', guardarComoOrden);
+$('btn-guardar-orden').addEventListener('click', abrirConfigOrden);
+$('btn-cerrar-orden-config').addEventListener('click', () => ocultar($('modal-orden-config')));
+$('btn-confirmar-orden').addEventListener('click', guardarComoOrden);
 $('btn-volver-cobrar').addEventListener('click', () => irA('vista-cobrar'));
 $('btn-ir-precios').addEventListener('click', () => irA('vista-ajustes'));
 
@@ -1278,6 +1476,7 @@ $('btn-confirmar-cobro').addEventListener('click', async () => {
 });
 $('btn-cerrar-producto').addEventListener('click', () => ocultar($('modal-producto')));
 $('btn-guardar-producto').addEventListener('click', () => {
+  if (!exigirModoDueno()) return;
   if (!productoEditando) return;
   const nombre = $('editar-nombre').value.trim();
   const precioPesos = Number($('editar-precio').value);
@@ -1287,7 +1486,7 @@ $('btn-guardar-producto').addEventListener('click', () => {
   const quiere = $('editar-cuadricula').checked;
   if (quiere && !estaba) catalogoActual = moverACuadricula(catalogoActual, productoEditando.id);
   if (!quiere && estaba) catalogoActual = moverAOcultos(catalogoActual, productoEditando.id);
-  guardarCatalogo(catalogoActual); ocultar($('modal-producto')); renderAjustes(); renderCobrar();
+  publicarCatalogo(); ocultar($('modal-producto')); renderAjustes(); renderCobrar();
 });
 $('btn-cerrar-ticket').addEventListener('click', () => ocultar($('modal-ticket')));
 $('btn-guardar-ticket').addEventListener('click', async () => {
@@ -1352,22 +1551,24 @@ $('btn-deshacer').addEventListener('click', async () => {
 });
 
 $('btn-guardar-precios').addEventListener('click', () => {
+  if (!exigirModoDueno()) return;
   document.querySelectorAll('#lista-precios-pendientes input').forEach((input) => {
     const valor = Number(input.value);
     if (valor > 0) catalogoActual = confirmarPrecio(catalogoActual, input.dataset.id, valor);
   });
-  guardarCatalogo(catalogoActual);
+  publicarCatalogo();
   renderAjustes();
   renderCobrar();
 });
 
 $('btn-agregar-producto').addEventListener('click', () => {
+  if (!exigirModoDueno()) return;
   const nombre = $('nuevo-nombre').value.trim();
   const categoria = $('nuevo-categoria').value.trim();
   const precioPesos = Number($('nuevo-precio').value);
   if (!nombre || !precioPesos) return;
   catalogoActual = agregarProductoCatalogo(catalogoActual, { nombre, categoria, precioPesos, aCuadricula: $('nuevo-en-cuadricula').checked });
-  guardarCatalogo(catalogoActual);
+  publicarCatalogo();
   $('nuevo-nombre').value = '';
   $('nuevo-categoria').value = '';
   $('nuevo-precio').value = '';
@@ -1386,11 +1587,26 @@ $('btn-reiniciar-medicion').addEventListener('click', () => {
     renderVelocidad();
   }
 });
-$('btn-sincronizar').addEventListener('click', sincronizarAhora);
-$('btn-registrar-operador').addEventListener('click', async () => {
-  const nombre = $('operador-nombre').value.trim(); if (!nombre) return;
-  guardarDispositivo(nombre); ocultar($('modal-operador')); await sincronizarAhora();
+
+$('btn-guardar-compra').addEventListener('click', async () => {
+  if (!exigirModoDueno()) return;
+  const totalCentavos = aCentavos(Number($('compra-total').value));
+  const categoria = $('compra-categoria').value.trim();
+  if (!categoria || !totalCentavos) return;
+  const compra = crearCompra({ id: crearId('comp'), fecha: hoyISO(), categoria, totalCentavos, usuario: sesionApi().usuario.nombre });
+  await guardarCompra(compra); encolar('compra', compra); $('compra-categoria').value = ''; $('compra-total').value = ''; sincronizarAhora(); renderResumenCaja();
 });
+$('btn-guardar-gasto').addEventListener('click', async () => {
+  if (!exigirModoDueno()) return;
+  const totalCentavos = aCentavos(Number($('gasto-total').value));
+  const categoria = $('gasto-categoria').value;
+  const concepto = $('gasto-concepto').value.trim();
+  if (!concepto || !totalCentavos) return;
+  const gasto = crearGasto({ id: crearId('gas'), fecha: hoyISO(), categoria, concepto, totalCentavos, usuario: sesionApi().usuario.nombre });
+  await guardarGasto(gasto); encolar('gasto', gasto); $('gasto-concepto').value = ''; $('gasto-total').value = ''; sincronizarAhora(); renderResumenCaja();
+});
+$('btn-sincronizar').addEventListener('click', sincronizarAhora);
+$('btn-registrar-operador').addEventListener('click', entrar);
 
 function abrirHojaMas() {
   const cont = $('lista-mas');
@@ -1414,9 +1630,9 @@ function abrirHojaMas() {
 pedirWakeLock();
 renderBannerPractica();
 renderCobrar();
-if (!dispositivo()) mostrar($('modal-operador')); else sincronizarAhora();
+if (!sesionApi()) prepararAcceso(); else sincronizarAhora();
 window.addEventListener('online', sincronizarAhora);
-setInterval(sincronizarAhora, 30000);
+setInterval(sincronizarAhora, 10000);
 
 if ('serviceWorker' in navigator) {
   // registration.update() fuerza a revisar si hay un sw.js más nuevo,

@@ -4,9 +4,11 @@
 // catalogo.js.
 
 const NOMBRE_DB = 'taqueria';
-const VERSION_DB = 2;
+const VERSION_DB = 3;
 const ALMACEN_TICKETS = 'tickets';
 const ALMACEN_ORDENES = 'ordenes';
+const ALMACEN_COMPRAS = 'compras';
+const ALMACEN_GASTOS = 'gastos';
 
 let dbPromesa = null;
 
@@ -26,6 +28,12 @@ function abrirDB() {
         ordenes.createIndex('porEstado', 'estado', { unique: false });
         ordenes.createIndex('porTs', 'creada', { unique: false });
       }
+      [ALMACEN_COMPRAS, ALMACEN_GASTOS].forEach((nombre) => {
+        if (!db.objectStoreNames.contains(nombre)) {
+          const store = db.createObjectStore(nombre, { keyPath: 'id' });
+          store.createIndex('porFecha', 'fecha', { unique: false });
+        }
+      });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -33,11 +41,11 @@ function abrirDB() {
   return dbPromesa;
 }
 
-async function conStore(modo, fn) {
+async function conStore(modo, fn, nombre = ALMACEN_TICKETS) {
   const db = await abrirDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(ALMACEN_TICKETS, modo);
-    const store = tx.objectStore(ALMACEN_TICKETS);
+    const tx = db.transaction(nombre, modo);
+    const store = tx.objectStore(nombre);
     const resultado = fn(store);
     tx.oncomplete = () => resolve(resultado.result ?? resultado);
     tx.onerror = () => reject(tx.error);
@@ -103,3 +111,18 @@ export async function listarOrdenesActivas() {
     req.onerror = () => reject(req.error);
   });
 }
+
+async function guardarMovimiento(nombre, movimiento) { await conStore('readwrite', (store) => store.put(movimiento), nombre); return movimiento; }
+async function listarMovimientos(nombre, fecha) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(nombre, 'readonly');
+    const req = fecha ? tx.objectStore(nombre).index('porFecha').getAll(fecha) : tx.objectStore(nombre).getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => Number(b.modificado) - Number(a.modificado)));
+    req.onerror = () => reject(req.error);
+  });
+}
+export function guardarCompra(compra) { return guardarMovimiento(ALMACEN_COMPRAS, compra); }
+export function guardarGasto(gasto) { return guardarMovimiento(ALMACEN_GASTOS, gasto); }
+export function listarCompras(fecha) { return listarMovimientos(ALMACEN_COMPRAS, fecha); }
+export function listarGastos(fecha) { return listarMovimientos(ALMACEN_GASTOS, fecha); }

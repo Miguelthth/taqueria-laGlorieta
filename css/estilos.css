@@ -394,6 +394,8 @@ button { cursor: pointer; }
   background: var(--tarjeta);
 }
 
+.texto-error { color: #b42318; margin: 10px 0; font-weight: 700; }
+
 /* ===== Ajustes — pantalla normal, con scroll ===== */
 
 #vista-ajustes.activa {
