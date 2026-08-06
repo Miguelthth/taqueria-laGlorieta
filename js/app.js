@@ -353,8 +353,9 @@ const almacen = (function () {
 // catalogo.js.
 
 const NOMBRE_DB = 'taqueria';
-const VERSION_DB = 1;
+const VERSION_DB = 2;
 const ALMACEN_TICKETS = 'tickets';
+const ALMACEN_ORDENES = 'ordenes';
 
 let dbPromesa = null;
 
@@ -368,6 +369,11 @@ function abrirDB() {
         const store = db.createObjectStore(ALMACEN_TICKETS, { keyPath: 'id' });
         store.createIndex('porFecha', 'fecha', { unique: false });
         store.createIndex('porTs', 'ts', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(ALMACEN_ORDENES)) {
+        const ordenes = db.createObjectStore(ALMACEN_ORDENES, { keyPath: 'id' });
+        ordenes.createIndex('porEstado', 'estado', { unique: false });
+        ordenes.createIndex('porTs', 'creada', { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -427,13 +433,35 @@ async function listarTodos() {
   });
 }
 
-  return { guardarTicket, borrarTicket, obtenerTicket, listarTicketsPorFecha, listarTodos };
+async function guardarOrden(orden) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ALMACEN_ORDENES, 'readwrite');
+    tx.objectStore(ALMACEN_ORDENES).put(orden);
+    tx.oncomplete = () => resolve(orden);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function listarOrdenesActivas() {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ALMACEN_ORDENES, 'readonly');
+    const req = tx.objectStore(ALMACEN_ORDENES).getAll();
+    req.onsuccess = () => resolve((req.result || []).filter((o) => o.estado !== 'cobrada' && o.estado !== 'cancelada').sort((a, b) => a.creada - b.creada));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+  return { guardarTicket, borrarTicket, obtenerTicket, listarTicketsPorFecha, listarTodos, guardarOrden, listarOrdenesActivas };
 })();
 const guardarTicket = almacen.guardarTicket;
 const borrarTicket = almacen.borrarTicket;
 const obtenerTicket = almacen.obtenerTicket;
 const listarTicketsPorFecha = almacen.listarTicketsPorFecha;
 const listarTodos = almacen.listarTodos;
+const guardarOrden = almacen.guardarOrden;
+const listarOrdenesActivas = almacen.listarOrdenesActivas;
 
 // ── js/cronometro.js ──────────────────────────────────────────
 const cronometro = (function () {
@@ -606,8 +634,9 @@ const confirmar = cola.confirmar;
 const api = (function () {
 const CLAVE_API = 'taq_api_url';
 const CLAVE_DISPOSITIVO = 'taq_dispositivo';
+const URL_SERVIDOR = 'https://script.google.com/macros/s/AKfycbwR0aIV5Kkxf4HgThFlR0K8NASMC06ZtUP5N5D4eqapObQk3QCWnzAthTrhsbqb4g_8Yw/exec';
 
-function urlApi() { return localStorage.getItem(CLAVE_API) || ''; }
+function urlApi() { return URL_SERVIDOR; }
 function guardarUrlApi(url) { localStorage.setItem(CLAVE_API, url.trim()); }
 function dispositivo() { try { return JSON.parse(localStorage.getItem(CLAVE_DISPOSITIVO)); } catch { return null; } }
 function guardarDispositivo(nombre) { const dato = { id: crypto.randomUUID(), nombre: nombre.trim() }; localStorage.setItem(CLAVE_DISPOSITIVO, JSON.stringify(dato)); return dato; }
@@ -650,7 +679,7 @@ const esCobrable = ordenes.esCobrable;
 // ── js/version.js ──────────────────────────────────────────
 const version = (function () {
 // Generado por build.py — no editar.
-const VERSION_DEPLOY = '2026-08-06T03:32:59Z';
+const VERSION_DEPLOY = '2026-08-06T04:32:18Z';
 
   return { VERSION_DEPLOY };
 })();
@@ -674,6 +703,8 @@ let ticketEditando = null;
 let lineasTicketEditando = [];
 let ultimoCambioCarritoMs = Date.now();
 let sincronizando = false;
+let cobroConfirmado = false;
+let ordenCobrando = null;
 
 // ---------- helpers ----------
 function $(id) { return document.getElementById(id); }
@@ -718,7 +749,7 @@ function renderCobrar() {
   if (estaVacio(carrito)) borrarCarritoEnCurso(); else guardarCarritoEnCurso(carrito);
   const total = totalCentavos(carrito);
   $('total-grande').textContent = formatoMoneda(total);
-  if (total > 0) mostrar($('zona-paga-con')); else ocultar($('zona-paga-con'));
+  if (total > 0) mostrar($('btn-guardar-orden')); else ocultar($('btn-guardar-orden'));
   renderTicketLineas();
   renderCuadricula();
   renderPago();
@@ -819,16 +850,8 @@ function renderPago() {
   const total = totalCentavos(carrito);
   const cont = $('fila-pago');
   if (total <= 0) { cont.innerHTML = ''; return; }
-  actualizarCambioMostrado();
   cont.innerHTML = '<button id="btn-cobrar" class="btn-pago exacto">Cobrar</button>';
   $('btn-cobrar').addEventListener('click', abrirModalCobro);
-}
-
-function actualizarCambioMostrado() {
-  const total = totalCentavos(carrito);
-  const recibido = aCentavos(Number($('paga-con').value) || 0) || total;
-  const cambio = calcularCambio(total, recibido);
-  $('cambio-mostrado').textContent = total > 0 ? `Cambio: ${formatoMoneda(cambio)}` : '';
 }
 
 function actualizarCambioCobro() {
@@ -840,11 +863,17 @@ function actualizarCambioCobro() {
 
 function abrirModalCobro() {
   const total = totalCentavos(carrito);
+  cobroConfirmado = false;
   $('cobro-total').textContent = formatoMoneda(total);
-  $('cobro-recibido').value = $('paga-con').value;
-  actualizarCambioCobro();
+  $('cobro-resumen').innerHTML = carrito.map((l) => `<div>${l.cantidad} × ${escapeHtml(l.nombre)} <span>${formatoMoneda(l.precioUnitarioCentavos * l.cantidad)}</span></div>`).join('');
+  $('cobro-recibido').value = '';
+  $('cobro-recibido').disabled = false;
+  mostrar($('cobro-recibido'));
+  mostrar($('cobro-recibido').previousElementSibling);
+  ocultar($('cobro-cambio'));
+  $('btn-confirmar-cobro').textContent = 'Confirmar cobro';
   mostrar($('modal-cobro'));
-  setTimeout(() => { $('cobro-recibido').focus(); $('cobro-recibido').select(); }, 50);
+  setTimeout(() => $('cobro-recibido').focus(), 50);
 }
 
 async function cobrar() {
@@ -869,6 +898,7 @@ async function finalizarTicket(pago) {
     totalCentavos: totalCentavos(carrito),
     ...pago,
     practica: modoPractica,
+    operador: dispositivo()?.nombre || '',
     duracionMs,
     modificado: Date.now(),
   };
@@ -876,12 +906,15 @@ async function finalizarTicket(pago) {
   encolar('ticket', ticket);
   sincronizarAhora();
   if (duracionMs != null) registrarDuracion(duracionMs);
+  if (ordenCobrando) {
+    const cerrada = avanzarOrden(ordenCobrando, 'cobrada');
+    await guardarOrden(cerrada); encolar('orden', cerrada); sincronizarAhora(); ordenCobrando = null;
+  }
 
   mostrarDeshacer(ticket);
   vibrar([25, 40, 25]);
   carrito = crearCarrito();
   borrarCarritoEnCurso();
-  $('paga-con').value = '';
   inicioTicketMs = null;
   renderCobrar();
 }
@@ -930,17 +963,16 @@ function renderAjustes() {
 }
 
 function renderConexion() {
-  const cola = leerCola(); const d = dispositivo();
-  $('api-url').value = urlApi(); $('dispositivo-nombre').value = d?.nombre || '';
+  const cola = leerCola();
   $('version-deploy').textContent = `Versión instalada: ${new Date(VERSION_DEPLOY).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}`;
-  $('estado-sincronizacion').textContent = urlApi() ? `${cola.length} operación(es) pendiente(s) de respaldo.` : 'Sin configurar: pega la URL del backend de Google.';
+  $('estado-sincronizacion').textContent = cola.length ? `${cola.length} operación(es) esperando respaldo.` : 'Respaldo automático en Drive activo.';
   const ultima = Number(localStorage.getItem('taq_ultima_actualizacion') || 0);
   $('ultima-actualizacion').textContent = ultima ? `Última actualización: ${new Date(ultima).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Aún no hay una actualización correcta con Drive.';
 }
 
 async function sincronizarAhora() {
   if (sincronizando || !urlApi()) return;
-  const d = dispositivo(); if (!d) return;
+  const d = dispositivo(); if (!d) { mostrar($('modal-operador')); return; }
   sincronizando = true;
   try {
     await llamarApi({ accion: 'registrarDispositivo', ...d });
@@ -1172,6 +1204,32 @@ function renderBannerPractica() {
   if (modoPractica) mostrar(banner); else ocultar(banner);
 }
 
+async function guardarComoOrden() {
+  if (estaVacio(carrito)) return;
+  const orden = crearOrden({ id: crearId('ord'), platos: [{ lineas: carrito, sin: [] }], dispositivo: dispositivo()?.nombre || '' });
+  await guardarOrden(orden); encolar('orden', orden); sincronizarAhora();
+  carrito = crearCarrito(); borrarCarritoEnCurso(); inicioTicketMs = null; renderCobrar(); abrirOrdenes();
+}
+
+async function abrirOrdenes() {
+  const cont = $('lista-ordenes'); const ordenes = await listarOrdenesActivas(); cont.innerHTML = '';
+  if (!ordenes.length) cont.innerHTML = '<p class="texto-suave">No hay órdenes pendientes.</p>';
+  for (const orden of ordenes) {
+    const tarjeta = document.createElement('div'); tarjeta.className = 'tarjeta-orden';
+    const detalle = orden.platos.flatMap((p) => p.lineas).map((l) => `${l.cantidad} × ${l.nombre}`).join(' · ');
+    tarjeta.innerHTML = `<strong>Orden ${orden.id.slice(-4)}</strong><p>${detalle}</p><p class="texto-suave">${orden.estado === 'cola' ? 'En preparación' : 'Entregada — falta cobrar'}</p>`;
+    if (orden.estado === 'cola') {
+      const entregar = document.createElement('button'); entregar.className = 'btn-secundario'; entregar.textContent = 'Marcar entregada';
+      entregar.addEventListener('click', async () => { const actualizada = avanzarOrden(orden, 'entregada'); await guardarOrden(actualizada); encolar('orden', actualizada); sincronizarAhora(); abrirOrdenes(); }); tarjeta.appendChild(entregar);
+    } else if (esCobrable(orden)) {
+      const cobrarOrden = document.createElement('button'); cobrarOrden.className = 'btn-primario'; cobrarOrden.textContent = 'Cobrar esta orden';
+      cobrarOrden.addEventListener('click', () => { carrito = orden.platos.flatMap((p) => p.lineas); ordenCobrando = orden; ocultar($('modal-ordenes')); renderCobrar(); abrirModalCobro(); }); tarjeta.appendChild(cobrarOrden);
+    }
+    cont.appendChild(tarjeta);
+  }
+  mostrar($('modal-ordenes'));
+}
+
 setInterval(() => {
   if (carritoOlvidado(carrito, ultimoCambioCarritoMs)) mostrar($('aviso-carrito'));
 }, 30000);
@@ -1181,6 +1239,9 @@ setInterval(() => {
 // ============================================================
 
 $('btn-ir-ajustes').addEventListener('click', () => irA('vista-ajustes'));
+$('btn-ordenes').addEventListener('click', abrirOrdenes);
+$('btn-cerrar-ordenes').addEventListener('click', () => ocultar($('modal-ordenes')));
+$('btn-guardar-orden').addEventListener('click', guardarComoOrden);
 $('btn-volver-cobrar').addEventListener('click', () => irA('vista-cobrar'));
 $('btn-ir-precios').addEventListener('click', () => irA('vista-ajustes'));
 
@@ -1199,9 +1260,22 @@ $('btn-libre-agregar').addEventListener('click', () => {
 
 $('btn-cerrar-mas').addEventListener('click', () => ocultar($('hoja-mas')));
 
-$('btn-cerrar-cobro').addEventListener('click', () => ocultar($('modal-cobro')));
-$('cobro-recibido').addEventListener('input', actualizarCambioCobro);
-$('btn-confirmar-cobro').addEventListener('click', async () => { await cobrar(); ocultar($('modal-cobro')); });
+$('btn-cerrar-cobro').addEventListener('click', () => { cobroConfirmado = false; ocultar($('modal-cobro')); });
+$('btn-confirmar-cobro').addEventListener('click', async () => {
+  if (cobroConfirmado) { ocultar($('modal-cobro')); return; }
+  const total = totalCentavos(carrito);
+  const recibido = aCentavos(Number($('cobro-recibido').value) || 0) || total;
+  if (recibido < total) return;
+  const cambio = calcularCambio(total, recibido);
+  await cobrar();
+  cobroConfirmado = true;
+  $('cobro-cambio').textContent = `Cambio a entregar: ${formatoMoneda(cambio)}`;
+  mostrar($('cobro-cambio'));
+  $('cobro-recibido').disabled = true;
+  ocultar($('cobro-recibido').previousElementSibling);
+  ocultar($('cobro-recibido'));
+  $('btn-confirmar-cobro').textContent = 'Listo';
+});
 $('btn-cerrar-producto').addEventListener('click', () => ocultar($('modal-producto')));
 $('btn-guardar-producto').addEventListener('click', () => {
   if (!productoEditando) return;
@@ -1265,8 +1339,6 @@ $('btn-cantidad-listo').addEventListener('click', () => {
   renderCobrar();
 });
 
-$('paga-con').addEventListener('input', actualizarCambioMostrado);
-
 $('btn-deshacer').addEventListener('click', async () => {
   if (!ultimoGuardado) return;
   clearTimeout(temporizadorDeshacer);
@@ -1314,20 +1386,11 @@ $('btn-reiniciar-medicion').addEventListener('click', () => {
     renderVelocidad();
   }
 });
-$('btn-guardar-conexion').addEventListener('click', async () => {
-  const url = $('api-url').value.trim(); const nombre = $('dispositivo-nombre').value.trim();
-  if (!url || !nombre) return;
-  guardarUrlApi(url); const d = dispositivo() || guardarDispositivo(nombre);
-  if (d.nombre !== nombre) localStorage.setItem('taq_dispositivo', JSON.stringify({ ...d, nombre }));
-  await sincronizarAhora(); renderConexion();
-});
-$('btn-instalar-backend').addEventListener('click', async () => {
-  const url = $('api-url').value.trim(); const pinDueno = $('pin-inicial-dueno').value;
-  if (!url || pinDueno.length < 4) return;
-  guardarUrlApi(url);
-  try { await llamarApi({ accion: 'instalar', pinDueno }); $('pin-inicial-dueno').value = ''; renderConexion(); } catch { /* La pantalla conserva el PIN para que se pueda corregir. */ }
-});
 $('btn-sincronizar').addEventListener('click', sincronizarAhora);
+$('btn-registrar-operador').addEventListener('click', async () => {
+  const nombre = $('operador-nombre').value.trim(); if (!nombre) return;
+  guardarDispositivo(nombre); ocultar($('modal-operador')); await sincronizarAhora();
+});
 
 function abrirHojaMas() {
   const cont = $('lista-mas');
@@ -1351,6 +1414,9 @@ function abrirHojaMas() {
 pedirWakeLock();
 renderBannerPractica();
 renderCobrar();
+if (!dispositivo()) mostrar($('modal-operador')); else sincronizarAhora();
+window.addEventListener('online', sincronizarAhora);
+setInterval(sincronizarAhora, 30000);
 
 if ('serviceWorker' in navigator) {
   // registration.update() fuerza a revisar si hay un sw.js más nuevo,

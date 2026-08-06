@@ -23,13 +23,9 @@
 
     <header class="cabecera-cobrar">
       <div class="total-grande" id="total-grande">$0</div>
+      <button id="btn-ordenes" class="btn-ajustes" title="Órdenes" aria-label="Órdenes">📋</button>
       <button id="btn-ir-ajustes" class="btn-ajustes" title="Ajustes" aria-label="Ajustes">⚙️</button>
     </header>
-
-    <div class="zona-paga-con oculto" id="zona-paga-con">
-      <input type="number" inputmode="decimal" id="paga-con" class="input-paga-con" placeholder="Paga con…">
-      <div class="cambio-mostrado" id="cambio-mostrado"></div>
-    </div>
 
     <div class="fila-ticket" id="fila-ticket">
       <div class="ticket-lineas" id="ticket-lineas"></div>
@@ -45,6 +41,7 @@
     </div>
 
     <div class="fila-pago" id="fila-pago"></div>
+    <button id="btn-guardar-orden" class="btn-secundario btn-orden oculto">Guardar como orden</button>
 
     <div id="barra-deshacer" class="barra-deshacer oculto">
       <span id="deshacer-texto">Ticket guardado</span>
@@ -52,6 +49,22 @@
     </div>
     <div id="aviso-carrito" class="aviso-carrito oculto">⚠️ Hay un ticket en curso sin cobrar.</div>
   </section>
+
+  <div id="modal-ordenes" class="hoja-fondo oculto">
+    <div class="hoja-caja">
+      <div class="hoja-cabecera"><h2>Órdenes pendientes</h2><button id="btn-cerrar-ordenes" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <div id="lista-ordenes"></div>
+    </div>
+  </div>
+
+  <div id="modal-operador" class="hoja-fondo oculto">
+    <div class="hoja-caja hoja-chica">
+      <h2>¿Quién está usando esta app?</h2>
+      <p class="texto-suave">Este nombre quedará asociado a las ventas y órdenes de este dispositivo.</p>
+      <input id="operador-nombre" class="input-texto-modal" type="text" placeholder="Ej. Caja, Juan, Cocina">
+      <button id="btn-registrar-operador" class="btn-primario">Continuar</button>
+    </div>
+  </div>
 
   <!-- ===== MÁS PRODUCTOS (hoja) ===== -->
   <div id="hoja-mas" class="hoja-fondo oculto">
@@ -100,9 +113,10 @@
   <div id="modal-cobro" class="hoja-fondo oculto">
     <div class="hoja-caja hoja-chica">
       <div class="hoja-cabecera"><h2>Cobrar <span id="cobro-total"></span></h2><button id="btn-cerrar-cobro" class="btn-cerrar" aria-label="Cerrar">✕</button></div>
+      <div id="cobro-resumen" class="cobro-resumen"></div>
       <label class="campo-label">¿Con cuánto paga?</label>
       <input type="number" inputmode="decimal" id="cobro-recibido" class="input-grande-modal" placeholder="Exacto">
-      <div id="cobro-cambio" class="cambio-grande">Cambio: $0</div>
+      <div id="cobro-cambio" class="cambio-grande oculto">Cambio: $0</div>
       <button id="btn-confirmar-cobro" class="btn-primario">Confirmar cobro</button>
     </div>
   </div>
@@ -178,11 +192,6 @@
       <p id="version-deploy" class="texto-suave"></p>
       <p id="estado-sincronizacion" class="texto-suave">Sin configurar.</p>
       <p id="ultima-actualizacion" class="texto-suave"></p>
-      <div class="campo"><label>URL del backend de Google</label><input type="url" id="api-url" placeholder="https://script.google.com/macros/s/…/exec"></div>
-      <div class="campo"><label>Nombre de este dispositivo</label><input type="text" id="dispositivo-nombre" placeholder="Caja, cocina, celular Miguel…"></div>
-      <div class="campo"><label>PIN inicial del dueño (solo primera instalación)</label><input type="password" inputmode="numeric" id="pin-inicial-dueno" placeholder="Mínimo 4 dígitos"></div>
-      <button id="btn-guardar-conexion" class="btn-secundario">Guardar conexión</button>
-      <button id="btn-instalar-backend" class="btn-secundario">Crear datos en Drive y guardar PIN</button>
       <button id="btn-sincronizar" class="btn-primario">Respaldar y actualizar ahora</button>
     </div>
   </section>

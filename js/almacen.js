@@ -4,8 +4,9 @@
 // catalogo.js.
 
 const NOMBRE_DB = 'taqueria';
-const VERSION_DB = 1;
+const VERSION_DB = 2;
 const ALMACEN_TICKETS = 'tickets';
+const ALMACEN_ORDENES = 'ordenes';
 
 let dbPromesa = null;
 
@@ -19,6 +20,11 @@ function abrirDB() {
         const store = db.createObjectStore(ALMACEN_TICKETS, { keyPath: 'id' });
         store.createIndex('porFecha', 'fecha', { unique: false });
         store.createIndex('porTs', 'ts', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(ALMACEN_ORDENES)) {
+        const ordenes = db.createObjectStore(ALMACEN_ORDENES, { keyPath: 'id' });
+        ordenes.createIndex('porEstado', 'estado', { unique: false });
+        ordenes.createIndex('porTs', 'creada', { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -74,6 +80,26 @@ export async function listarTodos() {
     const tx = db.transaction(ALMACEN_TICKETS, 'readonly');
     const req = tx.objectStore(ALMACEN_TICKETS).getAll();
     req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function guardarOrden(orden) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ALMACEN_ORDENES, 'readwrite');
+    tx.objectStore(ALMACEN_ORDENES).put(orden);
+    tx.oncomplete = () => resolve(orden);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function listarOrdenesActivas() {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ALMACEN_ORDENES, 'readonly');
+    const req = tx.objectStore(ALMACEN_ORDENES).getAll();
+    req.onsuccess = () => resolve((req.result || []).filter((o) => o.estado !== 'cobrada' && o.estado !== 'cancelada').sort((a, b) => a.creada - b.creada));
     req.onerror = () => reject(req.error);
   });
 }
