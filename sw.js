@@ -8,7 +8,7 @@
 // Sin esto, un service worker viejo se queda serviendo la versión anterior
 // indefinidamente porque el navegador lo ve "igual" y no se molesta en
 // revisar si cambió.
-const CACHE = 'taqueria-0a860ecd2b';
+const CACHE = 'taqueria-0d7e97a82f';
 
 const ARCHIVOS = [
   './index.html',

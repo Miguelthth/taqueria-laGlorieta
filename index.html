@@ -292,33 +292,58 @@
       <button id="btn-volver-dashboard" class="btn-volver">← Cobrar</button>
       <h1>Dashboard</h1>
     </header>
-    <div class="tabs-pildora" id="tabs-periodo">
-      <button type="button" class="tab-periodo activo" data-periodo="hoy">Hoy</button>
-      <button type="button" class="tab-periodo" data-periodo="semana">7 días</button>
-      <button type="button" class="tab-periodo" data-periodo="mes">30 días</button>
-      <button type="button" class="tab-periodo" data-periodo="historico">Histórico</button>
+
+    <div class="tabs-pildora" id="tabs-modo-periodo">
+      <button type="button" class="tab-periodo activo" data-modo="mes">Mes</button>
+      <button type="button" class="tab-periodo" data-modo="anio">Año</button>
+      <button type="button" class="tab-periodo" data-modo="rango">Rango</button>
     </div>
+    <div class="selector-periodo" id="selector-mes">
+      <button type="button" id="mes-anterior" class="btn-flecha">‹</button>
+      <span id="mes-etiqueta" class="periodo-etiqueta">Mes</span>
+      <button type="button" id="mes-siguiente" class="btn-flecha">›</button>
+    </div>
+    <div class="selector-periodo oculto" id="selector-anio">
+      <button type="button" id="anio-anterior" class="btn-flecha">‹</button>
+      <span id="anio-etiqueta" class="periodo-etiqueta">Año</span>
+      <button type="button" id="anio-siguiente" class="btn-flecha">›</button>
+    </div>
+    <div class="selector-periodo oculto" id="selector-rango">
+      <input type="date" id="rango-desde" class="input-fecha">
+      <span class="texto-suave">a</span>
+      <input type="date" id="rango-hasta" class="input-fecha">
+    </div>
+
+    <!-- 1. Resumen del período -->
     <div class="tarjeta tarjeta-ganancia">
       <span class="ganancia-etiqueta">Ganancia final</span>
       <div class="ganancia-final" id="ganancia-final">$0</div>
       <span class="ganancia-margen" id="ganancia-margen">0% de margen</span>
       <span class="ganancia-comparacion" id="ganancia-comparacion"></span>
     </div>
+    <div class="tarjeta">
+      <div class="kpis" id="kpis-dashboard"></div>
+    </div>
+
+    <!-- 2. Comparación mensual histórica -->
+    <div class="tarjeta">
+      <h2>Comparación mensual</h2>
+      <p class="texto-suave" style="margin-top:0">Toca un mes para verlo en el resumen de arriba. Desliza para años anteriores.</p>
+      <div id="tira-meses" class="tira-meses"></div>
+      <p id="comparacion-mes-texto" class="texto-suave" style="margin-bottom:0"></p>
+    </div>
+
     <div class="tarjeta tarjeta-equilibrio">
       <h2>Punto de equilibrio</h2>
       <p class="texto-suave" style="margin-top:0">Promedio de tus compras y gastos de los últimos 30 días, repartido por día.</p>
       <div class="equilibrio-numero" id="equilibrio-diario">$0</div>
       <p class="texto-suave" style="margin-bottom:0">Eso necesitas vender hoy solo para no perder — no cuenta lo que ya llevas vendido.</p>
     </div>
-    <div class="tarjeta">
-      <div class="kpis" id="kpis-dashboard"></div>
-    </div>
-    <div class="tarjeta">
-      <h2>Hora pico</h2>
-      <div id="grafica-horas" class="barras-horizontales"></div>
-    </div>
+
+    <!-- 3. Ventas diarias del período -->
     <div class="tarjeta">
       <h2>Ventas por día</h2>
+      <p class="texto-suave" style="margin-top:0">La línea marca el promedio diario del período.</p>
       <div id="grafica-dias" class="barras-horizontales"></div>
     </div>
     <div class="tarjeta">
@@ -326,9 +351,11 @@
       <div id="grafica-dia-semana" class="barras-horizontales"></div>
     </div>
     <div class="tarjeta">
-      <h2>Histórico por mes</h2>
-      <div id="grafica-meses" class="barras-horizontales"></div>
+      <h2>Hora pico</h2>
+      <div id="grafica-horas" class="barras-horizontales"></div>
     </div>
+
+    <!-- 4. Productos que dejan más -->
     <div class="tarjeta">
       <h2>Más vendido — por piezas</h2>
       <div id="grafica-producto-piezas" class="barras-horizontales"></div>
@@ -337,6 +364,8 @@
       <h2>Más vendido — por dinero</h2>
       <div id="grafica-producto-dinero" class="barras-horizontales"></div>
     </div>
+
+    <!-- 5. En qué se va el dinero -->
     <div class="tarjeta">
       <h2>En qué se fue — Compras</h2>
       <div id="grafica-compras-categoria" class="barras-horizontales"></div>
@@ -345,9 +374,13 @@
       <h2>En qué se fue — Gastos</h2>
       <div id="grafica-gastos-categoria" class="barras-horizontales"></div>
     </div>
+
+    <!-- 7. Control operativo -->
     <div class="tarjeta">
-      <h2>Quién cobró</h2>
+      <h2>Control operativo</h2>
+      <div class="kpis" id="kpis-operativo"></div>
       <div id="lista-por-usuario"></div>
+      <p id="texto-sin-sincronizar" class="texto-suave" style="margin-bottom:0"></p>
     </div>
   </section>
 

@@ -121,6 +121,27 @@ export function ventasPorMes(tickets = []) {
   return [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes));
 }
 
+// Igual que arriba pero junta ventas+compras+gastos+utilidad por mes, para
+// la comparación mensual histórica (no solo ventas).
+export function resumenPorMes(tickets = [], compras = [], gastos = []) {
+  const porMes = new Map();
+  const acumular = (mes, campo, valor) => {
+    const previo = porMes.get(mes) || { mes, ventasCentavos: 0, comprasCentavos: 0, gastosCentavos: 0, cantidadTickets: 0 };
+    previo[campo] += valor;
+    porMes.set(mes, previo);
+  };
+  vigentes(tickets).forEach((t) => {
+    const mes = (t.fecha || '').slice(0, 7);
+    acumular(mes, 'ventasCentavos', Number(t.totalCentavos || 0));
+    acumular(mes, 'cantidadTickets', 1);
+  });
+  compras.forEach((c) => acumular((c.fecha || '').slice(0, 7), 'comprasCentavos', Number(c.totalCentavos || 0)));
+  gastos.forEach((g) => acumular((g.fecha || '').slice(0, 7), 'gastosCentavos', Number(g.totalCentavos || 0)));
+  return [...porMes.values()]
+    .map((m) => ({ ...m, utilidadCentavos: m.ventasCentavos - m.comprasCentavos - m.gastosCentavos }))
+    .sort((a, b) => a.mes.localeCompare(b.mes));
+}
+
 // Punto de equilibrio diario: el promedio de tus compras+gastos de los
 // últimos N días, repartido por día -- "necesitas vender al menos $X hoy
 // para no perder" (PLAN.md Fase 6). No es una ciencia exacta (los gastos no

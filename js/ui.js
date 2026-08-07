@@ -24,7 +24,7 @@ import { leerCola, encolar, confirmar } from './cola.js';
 import { VERSION_DEPLOY } from './version.js';
 import { crearOrden, avanzarOrden, esCobrable, crearPlato, separarTodo, resumenComal, alternarSin } from './ordenes.js';
 import { crearCompra, crearGasto, categoriasCompra, categoriasGasto, esCategoriaDeFabrica, agregarCategoria, quitarCategoria, renombrarCategoria } from './gastos.js';
-import { resumenCaja, ventasPorProducto, ventasPorHora, ventasPorDia, ventasPorDiaSemana, ticketPromedio, cobradoPorUsuario, porCategoria, ventasPorMes, puntoEquilibrio, variacionPorcentaje } from './reportes.js';
+import { resumenCaja, ventasPorProducto, ventasPorHora, ventasPorDia, ventasPorDiaSemana, ticketPromedio, cobradoPorUsuario, porCategoria, resumenPorMes, puntoEquilibrio, variacionPorcentaje } from './reportes.js';
 
 // ---------- estado en memoria ----------
 let catalogoActual = obtenerCatalogo();
@@ -449,34 +449,63 @@ function abrirModalMovimiento({ tipo, id = null, categoria, concepto = '', total
 // DASHBOARD (bajo modo dueño)
 // ============================================================
 
-let periodoDashboard = 'hoy';
+// ---------- selector de periodo: Mes / Año / Rango ----------
+let modoPeriodo = 'mes';
+let mesSeleccionado = hoyISO().slice(0, 7); // 'YYYY-MM'
+let anioSeleccionado = Number(hoyISO().slice(0, 4));
+let rangoDashboard = { desde: hoyISO(), hasta: hoyISO() };
 
-function rangoFechas(periodo) {
-  const hasta = hoyISO();
-  if (periodo === 'hoy') return { desde: hasta, hasta };
-  if (periodo === 'historico') return { desde: '2000-01-01', hasta };
-  const dias = periodo === 'semana' ? 7 : 30;
-  const desde = new Date(Date.now() - (dias - 1) * 86400000).toISOString().slice(0, 10);
-  return { desde, hasta };
+const NOMBRES_MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function etiquetaMes(mesStr) {
+  const [anio, mes] = mesStr.split('-').map(Number);
+  const nombre = NOMBRES_MES[mes - 1];
+  return `${nombre[0].toUpperCase()}${nombre.slice(1)} ${anio}`;
+}
+function sumarMeses(mesStr, delta) {
+  const [anio, mes] = mesStr.split('-').map(Number);
+  const fecha = new Date(anio, mes - 1 + delta, 1);
+  return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+}
+function ultimoDiaMes(mesStr) {
+  const [anio, mes] = mesStr.split('-').map(Number);
+  return new Date(anio, mes, 0).toISOString().slice(0, 10);
+}
+
+function rangoDashboardActual() {
+  if (modoPeriodo === 'anio') return { desde: `${anioSeleccionado}-01-01`, hasta: `${anioSeleccionado}-12-31` };
+  if (modoPeriodo === 'rango') return { desde: rangoDashboard.desde, hasta: rangoDashboard.hasta };
+  return { desde: `${mesSeleccionado}-01`, hasta: ultimoDiaMes(mesSeleccionado) };
 }
 
 // El mismo tamaño de periodo, justo antes -- para decir "vas mejor o peor",
-// no solo el número solo. No aplica a "histórico": no hay un "antes de todo".
-function rangoAnterior(periodo, desde) {
-  if (periodo === 'historico') return null;
-  const dias = periodo === 'hoy' ? 1 : periodo === 'semana' ? 7 : 30;
+// no solo el número solo.
+function rangoDashboardAnterior({ desde, hasta }) {
+  if (modoPeriodo === 'anio') { const a = anioSeleccionado - 1; return { desde: `${a}-01-01`, hasta: `${a}-12-31` }; }
+  if (modoPeriodo === 'mes') { const mesAnt = sumarMeses(mesSeleccionado, -1); return { desde: `${mesAnt}-01`, hasta: ultimoDiaMes(mesAnt) }; }
+  const dias = Math.round((new Date(hasta) - new Date(desde)) / 86400000) + 1;
   const inicioMs = new Date(`${desde}T00:00:00`).getTime();
   return { desde: new Date(inicioMs - dias * 86400000).toISOString().slice(0, 10), hasta: new Date(inicioMs - 86400000).toISOString().slice(0, 10) };
 }
 
+function mostrarSelectorPeriodo() {
+  $('selector-mes').classList.toggle('oculto', modoPeriodo !== 'mes');
+  $('selector-anio').classList.toggle('oculto', modoPeriodo !== 'anio');
+  $('selector-rango').classList.toggle('oculto', modoPeriodo !== 'rango');
+}
+
 async function renderDashboard() {
-  const { desde, hasta } = rangoFechas(periodoDashboard);
+  $('mes-etiqueta').textContent = etiquetaMes(mesSeleccionado);
+  $('anio-etiqueta').textContent = String(anioSeleccionado);
+  if (!$('rango-desde').value) { $('rango-desde').value = rangoDashboard.desde; $('rango-hasta').value = rangoDashboard.hasta; }
+
+  const { desde, hasta } = rangoDashboardActual();
   const enRango = (desdeR, hastaR) => (fecha) => fecha >= desdeR && fecha <= hastaR;
   const [todosTickets, todasCompras, todosGastos] = await Promise.all([listarTodos(), listarCompras(), listarGastos()]);
   const tickets = todosTickets.filter(enRango(desde, hasta));
   const compras = todasCompras.filter(enRango(desde, hasta));
   const gastos = todosGastos.filter(enRango(desde, hasta));
 
+  // 1. Resumen del periodo
   const r = resumenCaja({ tickets, compras, gastos });
   const prom = ticketPromedio(tickets);
 
@@ -484,23 +513,15 @@ async function renderDashboard() {
   $('ganancia-final').classList.toggle('negativo', r.utilidadCentavos < 0);
   $('ganancia-margen').textContent = `${r.margenPorcentaje}% de margen sobre ventas`;
 
-  const anterior = rangoAnterior(periodoDashboard, desde);
+  const anterior = rangoDashboardAnterior({ desde, hasta });
+  const comprasAnt = todasCompras.filter(enRango(anterior.desde, anterior.hasta));
+  const gastosAnt = todosGastos.filter(enRango(anterior.desde, anterior.hasta));
+  const ticketsAnt = todosTickets.filter(enRango(anterior.desde, anterior.hasta));
+  const cambio = variacionPorcentaje(r.ventasCentavos, resumenCaja({ tickets: ticketsAnt }).ventasCentavos);
   const comparacion = $('ganancia-comparacion');
-  if (anterior) {
-    const ticketsAnt = todosTickets.filter(enRango(anterior.desde, anterior.hasta));
-    const cambio = variacionPorcentaje(r.ventasCentavos, resumenCaja({ tickets: ticketsAnt }).ventasCentavos);
-    comparacion.textContent = `${cambio >= 0 ? '▲' : '▼'} ${Math.abs(cambio)}% en ventas vs el periodo anterior`;
-    comparacion.classList.toggle('sube', cambio >= 0);
-    comparacion.classList.toggle('baja', cambio < 0);
-  } else {
-    comparacion.textContent = '';
-  }
-
-  const hace30 = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-  const equilibrio = puntoEquilibrio(todasCompras.filter(enRango(hace30, hasta)), todosGastos.filter(enRango(hace30, hasta)), 30);
-  $('equilibrio-diario').textContent = formatoMoneda(equilibrio.diarioCentavos);
-
-  renderBarras('grafica-meses', ventasPorMes(todosTickets).map((m) => ({ etiqueta: m.mes, valor: m.totalCentavos })));
+  comparacion.textContent = `${cambio >= 0 ? '▲' : '▼'} ${Math.abs(cambio)}% en ventas vs el periodo anterior`;
+  comparacion.classList.toggle('sube', cambio >= 0);
+  comparacion.classList.toggle('baja', cambio < 0);
 
   $('kpis-dashboard').innerHTML = [
     ['Ventas', formatoMoneda(r.ventasCentavos)], ['Compras', formatoMoneda(r.comprasCentavos)],
@@ -508,34 +529,135 @@ async function renderDashboard() {
     ['Ticket prom.', formatoMoneda(prom.promedioCentavos)],
   ].map(([label, valor]) => `<div class="kpi"><div class="valor">${valor}</div><div class="label">${label}</div></div>`).join('');
 
-  renderBarras('grafica-horas', ventasPorHora(tickets).map((h) => ({ etiqueta: `${String(h.hora).padStart(2, '0')}:00`, valor: h.totalCentavos })));
-  renderBarras('grafica-dias', ventasPorDia(tickets).map((d) => ({ etiqueta: d.fecha.slice(5), valor: d.totalCentavos })));
-  renderBarras('grafica-dia-semana', ventasPorDiaSemana(tickets).map((d) => ({ etiqueta: d.etiqueta, valor: d.totalCentavos })));
+  // 2. Comparación mensual histórica
+  renderTiraMeses(todosTickets, todasCompras, todosGastos);
 
-  const vendidos = ventasPorProducto(tickets);
+  // punto de equilibrio -- siempre sobre los últimos 30 días reales, sin
+  // importar qué periodo se esté viendo arriba (es una vara del "ahora").
+  const hoy = hoyISO();
+  const hace30 = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+  const equilibrio = puntoEquilibrio(todasCompras.filter(enRango(hace30, hoy)), todosGastos.filter(enRango(hace30, hoy)), 30);
+  $('equilibrio-diario').textContent = formatoMoneda(equilibrio.diarioCentavos);
+
+  // 3. Ventas diarias del periodo, con línea de promedio
+  const filasDias = ventasPorDia(tickets).map((d) => ({ etiqueta: d.fecha.slice(5), valor: d.totalCentavos }));
+  const promedioDiario = filasDias.length ? filasDias.reduce((acc, f) => acc + f.valor, 0) / filasDias.length : 0;
+  renderBarras('grafica-dias', filasDias, formatoMoneda, promedioDiario);
+  renderBarras('grafica-dia-semana', ventasPorDiaSemana(tickets).map((d) => ({ etiqueta: d.etiqueta, valor: d.totalCentavos })));
+  renderBarras('grafica-horas', ventasPorHora(tickets).map((h) => ({ etiqueta: `${String(h.hora).padStart(2, '0')}:00`, valor: h.totalCentavos })));
+
+  // 4. Productos que dejan más -- solo los principales
+  const vendidos = ventasPorProducto(tickets).slice(0, 8);
   renderBarras('grafica-producto-piezas', vendidos.map((p) => ({ etiqueta: p.nombre, valor: p.cantidad })), (n) => String(n));
   renderBarras('grafica-producto-dinero', vendidos.map((p) => ({ etiqueta: p.nombre, valor: p.totalCentavos })));
 
-  renderBarras('grafica-compras-categoria', porCategoria(compras).map((c) => ({ etiqueta: c.categoria, valor: c.totalCentavos })));
-  renderBarras('grafica-gastos-categoria', porCategoria(gastos).map((g) => ({ etiqueta: g.categoria, valor: g.totalCentavos })));
+  // 5. En qué se va el dinero, comparado contra el periodo anterior
+  renderBarrasComparadas('grafica-compras-categoria', porCategoria(compras), porCategoria(comprasAnt));
+  renderBarrasComparadas('grafica-gastos-categoria', porCategoria(gastos), porCategoria(gastosAnt));
+
+  // 7. Control operativo
+  const ordenesActivas = await listarOrdenesActivas();
+  $('kpis-operativo').innerHTML = [
+    ['En cola', String(ordenesActivas.filter((o) => o.estado === 'cola').length)],
+    ['Por cobrar', String(ordenesActivas.filter((o) => o.estado === 'entregada').length)],
+  ].map(([label, valor]) => `<div class="kpi"><div class="valor">${valor}</div><div class="label">${label}</div></div>`).join('');
 
   const porUsuario = cobradoPorUsuario(tickets);
   $('lista-por-usuario').innerHTML = porUsuario.length
     ? porUsuario.map((u) => `<p>${escapeHtml(u.nombre)}: <strong>${u.cantidadTickets}</strong> tickets · ${formatoMoneda(u.totalCentavos)}</p>`).join('')
     : '<p class="texto-suave">Sin datos todavía.</p>';
+
+  // Lo sin sincronizar de ESTE celular -- lo de otros celulares no se puede
+  // ver desde aquí: mientras no suban su cola, sus datos solo viven en su
+  // propio aparato. Es un límite real de cómo está armada la nube (Sheets +
+  // Apps Script), no un pendiente por construir.
+  const pendientes = leerCola().length;
+  $('texto-sin-sincronizar').textContent = pendientes
+    ? `⚠ Este celular tiene ${pendientes} registro(s) sin respaldar en Drive todavía.`
+    : 'Este celular está al día con Drive. (Solo ve lo suyo -- otro celular con cola pendiente no se refleja aquí hasta que sincronice.)';
 }
 
-function renderBarras(contId, filas, formatear = formatoMoneda) {
+function renderTiraMeses(todosTickets, todasCompras, todosGastos) {
+  const meses = resumenPorMes(todosTickets, todasCompras, todosGastos);
+  const cont = $('tira-meses');
+  cont.innerHTML = '';
+  if (!meses.length) { cont.innerHTML = '<p class="texto-suave">Sin datos todavía.</p>'; $('comparacion-mes-texto').textContent = ''; return; }
+  const maxVentas = Math.max(...meses.map((m) => m.ventasCentavos), 1);
+  for (const m of meses) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mes-card' + (m.mes === mesSeleccionado ? ' seleccionado' : '');
+    btn.innerHTML = `
+      <div class="mes-card-titulo">${etiquetaMes(m.mes).slice(0, 3)} ${m.mes.slice(2, 4)}</div>
+      <div class="barra-pista" style="height:6px;margin-bottom:6px;"><div class="barra-relleno" style="width:${Math.max(3, Math.round((m.ventasCentavos / maxVentas) * 100))}%"></div></div>
+      <div class="mes-metric"><span>Ventas</span><strong>${formatoMoneda(m.ventasCentavos)}</strong></div>
+      <div class="mes-metric"><span>Compras</span><strong>${formatoMoneda(m.comprasCentavos)}</strong></div>
+      <div class="mes-metric"><span>Gastos</span><strong>${formatoMoneda(m.gastosCentavos)}</strong></div>
+      <div class="mes-metric utilidad"><span>Utilidad</span><strong>${formatoMoneda(m.utilidadCentavos)}</strong></div>
+    `;
+    btn.addEventListener('click', () => {
+      modoPeriodo = 'mes';
+      mesSeleccionado = m.mes;
+      document.querySelectorAll('#tabs-modo-periodo .tab-periodo').forEach((b) => b.classList.toggle('activo', b.dataset.modo === 'mes'));
+      mostrarSelectorPeriodo();
+      renderDashboard();
+    });
+    cont.appendChild(btn);
+  }
+  cont.querySelector('.mes-card.seleccionado')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+
+  const texto = $('comparacion-mes-texto');
+  if (modoPeriodo !== 'mes') { texto.textContent = ''; return; }
+  const actual = meses.find((m) => m.mes === mesSeleccionado);
+  const anteriorMes = meses.find((m) => m.mes === sumarMeses(mesSeleccionado, -1));
+  const [anioSel, mesSel] = mesSeleccionado.split('-');
+  const mismoMesAnioPasado = meses.find((m) => m.mes === `${Number(anioSel) - 1}-${mesSel}`);
+  const partes = [];
+  if (actual && anteriorMes) partes.push(`${signoVariacion(actual.ventasCentavos, anteriorMes.ventasCentavos)} vs el mes anterior`);
+  if (actual && mismoMesAnioPasado) partes.push(`${signoVariacion(actual.ventasCentavos, mismoMesAnioPasado.ventasCentavos)} vs ${etiquetaMes(`${Number(anioSel) - 1}-${mesSel}`)}`);
+  texto.textContent = partes.length ? `Ventas: ${partes.join(' · ')}` : 'Sin datos del mes anterior o del mismo mes del año pasado para comparar.';
+}
+
+function signoVariacion(actual, antes) {
+  const cambio = variacionPorcentaje(actual, antes);
+  return `${cambio >= 0 ? '▲' : '▼'} ${Math.abs(cambio)}%`;
+}
+
+function renderBarras(contId, filas, formatear = formatoMoneda, lineaReferencia = null) {
   const cont = $(contId);
   if (!filas.length) { cont.innerHTML = '<p class="texto-suave">Sin datos todavía.</p>'; return; }
-  const max = Math.max(...filas.map((f) => f.valor), 1);
+  const max = Math.max(...filas.map((f) => f.valor), lineaReferencia || 0, 1);
   cont.innerHTML = filas.map((f) => `
     <div class="barra-fila">
       <span class="barra-etiqueta">${escapeHtml(String(f.etiqueta))}</span>
-      <div class="barra-pista"><div class="barra-relleno" style="width:${Math.max(3, Math.round((f.valor / max) * 100))}%"></div></div>
+      <div class="barra-pista">
+        <div class="barra-relleno" style="width:${Math.max(3, Math.round((f.valor / max) * 100))}%"></div>
+        ${lineaReferencia ? `<div class="barra-referencia" style="left:${Math.min(99, Math.round((lineaReferencia / max) * 100))}%"></div>` : ''}
+      </div>
       <span class="barra-valor">${formatear(f.valor)}</span>
     </div>
   `).join('');
+}
+
+// Igual que renderBarras, pero con el % de cambio contra el mismo renglón
+// del periodo anterior -- "en qué se fue el dinero" quiere decir tanto el
+// total como si ese gasto está subiendo.
+function renderBarrasComparadas(contId, filasActual, filasAnterior) {
+  const cont = $(contId);
+  if (!filasActual.length) { cont.innerHTML = '<p class="texto-suave">Sin datos todavía.</p>'; return; }
+  const max = Math.max(...filasActual.map((f) => f.totalCentavos), 1);
+  const anteriorPorCategoria = new Map(filasAnterior.map((f) => [f.categoria, f.totalCentavos]));
+  cont.innerHTML = filasActual.map((f) => {
+    const antes = anteriorPorCategoria.get(f.categoria) || 0;
+    const cambio = variacionPorcentaje(f.totalCentavos, antes);
+    return `
+    <div class="barra-fila">
+      <span class="barra-etiqueta">${escapeHtml(f.categoria)}</span>
+      <div class="barra-pista"><div class="barra-relleno" style="width:${Math.max(3, Math.round((f.totalCentavos / max) * 100))}%"></div></div>
+      <span class="barra-valor">${formatoMoneda(f.totalCentavos)}</span>
+      <span class="barra-delta ${cambio >= 0 ? 'sube' : 'baja'}">${cambio >= 0 ? '▲' : '▼'}${Math.abs(cambio)}%</span>
+    </div>`;
+  }).join('');
 }
 
 function renderConexion() {
@@ -1141,13 +1263,20 @@ document.querySelectorAll('.tab-movimiento').forEach((btn) => {
     renderVistaCompras();
   });
 });
-document.querySelectorAll('.tab-periodo').forEach((btn) => {
+document.querySelectorAll('#tabs-modo-periodo .tab-periodo').forEach((btn) => {
   btn.addEventListener('click', () => {
-    periodoDashboard = btn.dataset.periodo;
-    document.querySelectorAll('.tab-periodo').forEach((b) => b.classList.toggle('activo', b === btn));
+    modoPeriodo = btn.dataset.modo;
+    document.querySelectorAll('#tabs-modo-periodo .tab-periodo').forEach((b) => b.classList.toggle('activo', b === btn));
+    mostrarSelectorPeriodo();
     renderDashboard();
   });
 });
+$('mes-anterior').addEventListener('click', () => { mesSeleccionado = sumarMeses(mesSeleccionado, -1); renderDashboard(); });
+$('mes-siguiente').addEventListener('click', () => { mesSeleccionado = sumarMeses(mesSeleccionado, 1); renderDashboard(); });
+$('anio-anterior').addEventListener('click', () => { anioSeleccionado -= 1; renderDashboard(); });
+$('anio-siguiente').addEventListener('click', () => { anioSeleccionado += 1; renderDashboard(); });
+$('rango-desde').addEventListener('change', () => { rangoDashboard.desde = $('rango-desde').value; renderDashboard(); });
+$('rango-hasta').addEventListener('change', () => { rangoDashboard.hasta = $('rango-hasta').value; renderDashboard(); });
 
 $('btn-cerrar-movimiento').addEventListener('click', () => ocultar($('modal-movimiento')));
 $('btn-guardar-movimiento').addEventListener('click', async () => {
